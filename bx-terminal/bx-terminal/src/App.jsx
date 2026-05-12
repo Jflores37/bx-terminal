@@ -265,27 +265,87 @@ export default function App() {
   const bullish = useMemo(() => filtered.filter(r => r.zone === 'bullish').sort((a,b) => b.bx - a.bx), [filtered]);
   const transitions = useMemo(() => filtered.filter(r => r.transition), [filtered]);
 
-  // Keyboard nav
+  // Keyboard nav: ↑/↓ within column, ←/→ switch columns, works in ZONES + MOVERS
+  // CAPTURE phase so we beat Safari's default arrow-key scroll on the column.
   useEffect(() => {
     const handler = (e) => {
-      if (view !== 'zones') return;
       if (mobileFiltersOpen || showAlerts || mobileDetailOpen) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-      const selectedRowLocal = scan.data.find(r => r.t === selected);
-      if (!selectedRowLocal) return;
-      const z = zoneOf(selectedRowLocal.bx);
-      const list = z === 'bullish' ? bullish : z === 'bearish' ? bearish : neutral;
-      const idx = list.findIndex(r => r.t === selected);
-      if (idx === -1) return;
+
+      const isVert = e.key === 'ArrowUp' || e.key === 'ArrowDown';
+      const isHoriz = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+      if (!isVert && !isHoriz) return;
+      if (view !== 'zones' && view !== 'movers') return;
+
+      // Stop the column scroll IMMEDIATELY, before we even compute anything
       e.preventDefault();
-      const next = e.key === 'ArrowDown' ? Math.min(list.length - 1, idx + 1) : Math.max(0, idx - 1);
-      if (next !== idx) setSelected(list[next].t);
+      e.stopPropagation();
+
+      if (view === 'zones') {
+        const lists = { bearish, neutral, bullish };
+        const order = ['bearish', 'neutral', 'bullish'];
+        // Determine current zone from the selected ticker (use unfiltered data for zone lookup)
+        const selRow = scan.data.find(r => r.t === selected);
+        let curZone = selRow ? zoneOf(selRow.bx) : 'neutral';
+        let list = lists[curZone];
+        // If the selected ticker isn't in the (filtered) list, find a fallback
+        if (!list || list.length === 0) {
+          // Try other zones in order
+          for (const z of order) { if (lists[z].length) { curZone = z; list = lists[z]; break; } }
+          if (!list || list.length === 0) return;
+        }
+        const idx = list.findIndex(r => r.t === selected);
+
+        if (isVert) {
+          const len = list.length;
+          if (idx === -1) { setSelected(list[0].t); return; }
+          const next = e.key === 'ArrowDown' ? (idx + 1) % len : (idx - 1 + len) % len;
+          setSelected(list[next].t);
+        } else {
+          // ←/→ switch columns
+          const curIdx = order.indexOf(curZone);
+          const dir = e.key === 'ArrowRight' ? 1 : -1;
+          // Find the next non-empty column in that direction
+          for (let step = 1; step <= 3; step++) {
+            const ni = curIdx + dir * step;
+            if (ni < 0 || ni > 2) break;
+            const targetList = lists[order[ni]];
+            if (targetList.length === 0) continue;
+            // Land on same relative position if possible
+            const targetIdx = Math.min(Math.max(idx, 0), targetList.length - 1);
+            setSelected(targetList[targetIdx].t);
+            return;
+          }
+        }
+      } else if (view === 'movers') {
+        const bullishMoves = movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25);
+        const bearishMoves = movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25);
+        const inBull = bullishMoves.findIndex(r => r.ticker === selected);
+        const inBear = bearishMoves.findIndex(r => r.ticker === selected);
+        let curList, curIdx;
+        if (inBull >= 0)      { curList = bullishMoves; curIdx = inBull; }
+        else if (inBear >= 0) { curList = bearishMoves; curIdx = inBear; }
+        else                  { curList = bullishMoves.length ? bullishMoves : bearishMoves; curIdx = -1; }
+        if (!curList || curList.length === 0) return;
+
+        if (isVert) {
+          const len = curList.length;
+          if (curIdx === -1) { setSelected(curList[0].ticker); return; }
+          const next = e.key === 'ArrowDown' ? (curIdx + 1) % len : (curIdx - 1 + len) % len;
+          setSelected(curList[next].ticker);
+        } else {
+          // ←/→ switch between bullish and bearish movers
+          const targetList = curList === bullishMoves ? bearishMoves : bullishMoves;
+          if (!targetList.length) return;
+          const targetIdx = Math.min(Math.max(curIdx, 0), targetList.length - 1);
+          setSelected(targetList[targetIdx].ticker);
+        }
+      }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [view, selected, scan.data, bullish, bearish, neutral, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
+    window.addEventListener('keydown', handler, { capture: true });
+    return () => window.removeEventListener('keydown', handler, { capture: true });
+  }, [view, selected, scan.data, bullish, bearish, neutral, movers, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
 
   const toggleWatch = (t) => setWatchlist(w => { const n={...w}; if(n[t])delete n[t]; else n[t]=Date.now(); return n; });
   const handleSelect = (t) => { setSelected(t); setMobileDetailOpen(true); };
@@ -425,7 +485,7 @@ export default function App() {
         </div>
 
         {view === 'zones' && (
-          <div className="md:hidden flex items-stretch border-t border-zinc-800 h-8 text-[10px]">
+          <div className="lg:hidden flex items-stretch border-t border-zinc-800 h-8 text-[10px]">
             <div className="flex-1 flex items-center justify-center gap-1.5 border-r border-zinc-800">
               <span className="text-zinc-500">BEAR</span><span className="text-red-400 font-bold">{bearish.length}</span>
             </div>
@@ -531,7 +591,7 @@ export default function App() {
 
       {view === 'zones' && (
         <>
-          <div className="hidden md:flex flex-1 overflow-hidden">
+          <div className="hidden lg:flex flex-1 overflow-hidden">
             <div className="flex-1 grid grid-cols-3 overflow-hidden">
               <ZoneColumn label="BEARISH" range="[−10 · −2)" accent="red" rows={bearish}
                 selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
@@ -546,7 +606,7 @@ export default function App() {
             </aside>
           </div>
 
-          <div className="md:hidden flex-1 flex flex-col overflow-hidden"
+          <div className="lg:hidden flex-1 flex flex-col overflow-hidden"
                onTouchStart={onMobileTouchStart} onTouchEnd={onMobileTouchEnd}>
             <div className="flex items-stretch border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
               <MobileZoneTab label="BEARISH" count={bearish.length} active={mobileZone === 'bearish'} accent="red" onClick={() => setMobileZone('bearish')}/>
@@ -589,9 +649,9 @@ export default function App() {
       {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan}/>}
 
       {mobileDetailOpen && selected && (
-        <div className="md:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up">
-          <div className="flex items-center gap-2 px-3 h-11 border-b border-zinc-800 flex-shrink-0">
-            <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-zinc-400 -ml-1 px-1 py-2 no-tap-highlight">
+        <div className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up">
+          <div className="flex items-center gap-2 px-3 h-10 border-b border-zinc-800 flex-shrink-0 bg-zinc-950">
+            <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-zinc-400 -ml-1 px-1 py-1.5 no-tap-highlight">
               <ChevronLeft className="w-4 h-4" />
               <span className="text-[10px] tracking-[0.3em]">BACK</span>
             </button>
@@ -601,7 +661,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex-1 overflow-hidden">
-            <DetailPanel ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+            <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
               notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>
           </div>
         </div>
@@ -645,7 +705,7 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
         <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
           selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
       </div>
-      <aside className="hidden md:flex w-[520px] flex-shrink-0 border-l border-zinc-800 flex-col bg-zinc-950">
+      <aside className="hidden lg:flex w-[520px] flex-shrink-0 border-l border-zinc-800 flex-col bg-zinc-950">
         {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
           notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
       </aside>
@@ -1195,46 +1255,22 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
 
   const notesSummary = noteVal ? <span className="text-zinc-400">{noteVal.length} ch</span> : <span className="text-zinc-600">—</span>;
 
-  // COMPACT layout
-  if (compact) {
-    return (
-      <div className="flex flex-col h-full overflow-y-auto col-scroll">
-        <div className="sticky top-0 z-20 bg-zinc-950 flex-shrink-0">
-          {renderHeader()}{renderEarningsBanner()}{renderStats()}
-        </div>
-        <CollapsibleSection title="CONFLUENCE" icon={Target} summary={confluenceSummary}>{renderConfluenceBody()}</CollapsibleSection>
-        <CollapsibleSection title="BX RANGE"   icon={Activity} summary={bxSummary}>{renderBxRangeBody()}</CollapsibleSection>
-        <CollapsibleSection title="MARKET BIAS" icon={BarChart3} summary={biasSummary}>{renderMarketBiasBody()}</CollapsibleSection>
-        <CollapsibleSection title="52-WEEK"    icon={TrendingUp} summary={range52Summary}>{renderRange52wBody()}</CollapsibleSection>
-        <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
-        <div className="flex-1 min-h-[55vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
-          <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
-          {ticker && <TVChart ticker={ticker} interval={interval} />}
-        </div>
-        <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
-      </div>
-    );
-  }
-
-  // FLAT (mobile)
+  // COMPACT — used by both desktop sidebar AND mobile drawer
   return (
-    <div className="flex flex-col h-full">
-      {renderHeader()}{renderEarningsBanner()}{renderStats()}
-      {align != null && <div className="border-b border-zinc-800 flex-shrink-0"><div className="px-4 py-2 border-b border-zinc-900"><div className="flex items-center gap-2"><Target className="w-3 h-3 text-zinc-500" /><span className="text-[10px] tracking-[0.3em] text-zinc-500">CONFLUENCE</span></div></div>{renderConfluenceBody()}</div>}
-      {bx != null && <div className="border-b border-zinc-800 flex-shrink-0"><div className="px-4 py-2 border-b border-zinc-900"><span className="text-[10px] tracking-[0.3em] text-zinc-500">BX RANGE</span></div>{renderBxRangeBody()}</div>}
-      {meta.biasDir && <div className="border-b border-zinc-800 flex-shrink-0"><div className="px-4 py-2 border-b border-zinc-900"><span className="text-[10px] tracking-[0.3em] text-zinc-500">MARKET BIAS</span></div>{renderMarketBiasBody()}</div>}
-      {meta.pct52 != null && meta.hi52 && meta.lo52 && <div className="border-b border-zinc-800 flex-shrink-0"><div className="px-4 py-2 border-b border-zinc-900"><span className="text-[10px] tracking-[0.3em] text-zinc-500">52-WEEK</span></div>{renderRange52wBody()}</div>}
-      <div className="flex-1 min-h-0 border-b border-zinc-800 relative">
+    <div className="flex flex-col h-full overflow-y-auto col-scroll">
+      <div className="sticky top-0 z-20 bg-zinc-950 flex-shrink-0">
+        {renderHeader()}{renderEarningsBanner()}{renderStats()}
+      </div>
+      <CollapsibleSection title="CONFLUENCE" icon={Target} summary={confluenceSummary}>{renderConfluenceBody()}</CollapsibleSection>
+      <CollapsibleSection title="BX RANGE"   icon={Activity} summary={bxSummary}>{renderBxRangeBody()}</CollapsibleSection>
+      <CollapsibleSection title="MARKET BIAS" icon={BarChart3} summary={biasSummary}>{renderMarketBiasBody()}</CollapsibleSection>
+      <CollapsibleSection title="52-WEEK"    icon={TrendingUp} summary={range52Summary}>{renderRange52wBody()}</CollapsibleSection>
+      <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
+      <div className="flex-1 min-h-[60vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
         <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
         {ticker && <TVChart ticker={ticker} interval={interval} />}
       </div>
-      <div className="flex-shrink-0">
-        <div className="flex items-center justify-between px-4 h-8 border-b border-zinc-800">
-          <span className="text-[10px] tracking-[0.3em] text-zinc-500">NOTES</span>
-          {noteVal && <span className="text-[9px] text-zinc-600">{noteVal.length} chars</span>}
-        </div>
-        {renderNotesBody()}
-      </div>
+      <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
     </div>
   );
 }
@@ -1254,7 +1290,7 @@ function Stat({ label, value, valueClass = 'text-zinc-100' }) {
 
 function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, priceMax, setPriceMax, volMin, setVolMin, earnFilter, setEarnFilter, pct52Filter, setPct52Filter, biasFilter, setBiasFilter, inZoneOnly, setInZoneOnly, hasActiveFilters, onClear, onClose }) {
   return (
-    <div className="md:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+    <div className="lg:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
       <div className="w-full bg-zinc-950 border-t border-zinc-800 slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 h-12 border-b border-zinc-800 sticky top-0 bg-zinc-950">
           <div className="flex items-center gap-2">
