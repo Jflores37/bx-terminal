@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Star, StickyNote, X, Search, AlertCircle, ArrowRight, Radio,
-  SlidersHorizontal, ChevronLeft, ChevronDown, RefreshCw, TrendingUp, Activity,
-  Calendar, Target, Layers, BarChart3, Sparkles, Check, Copy, History
+  SlidersHorizontal, ChevronLeft, ChevronDown, ChevronUp, RefreshCw, TrendingUp, Activity,
+  Calendar, Target, Layers, BarChart3, Sparkles, Check, History
 } from 'lucide-react';
 
 // ============================================================================
@@ -202,8 +202,18 @@ export default function App() {
   const [inZoneOnly, setInZoneOnly] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [mobileZone, setMobileZone] = useState('bullish');
+  const [mobileMoverTab, setMobileMoverTab] = useState(() => loadLocal('bx_mobile_mover_tab', 'bullish'));
+  useEffect(() => { saveLocal('bx_mobile_mover_tab', mobileMoverTab); }, [mobileMoverTab]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [zoneSort, setZoneSort] = useState(() => loadLocal('bx_zone_sort', {
+    bearish: 'asc',   // -10 → -2 at top (most extreme bearish first)
+    neutral: 'asc',   // -2 → +2 (negative, zero, positive) per request
+    bullish: 'desc',  // +10 → +2 at top (most extreme bullish first)
+  }));
+  useEffect(() => { saveLocal('bx_zone_sort', zoneSort); }, [zoneSort]);
+  const toggleZoneSort = (zone) =>
+    setZoneSort(s => ({ ...s, [zone]: s[zone] === 'asc' ? 'desc' : 'asc' }));
 
   useEffect(() => {
     let cancelled = false;
@@ -260,9 +270,11 @@ export default function App() {
     });
   }, [decorated, mcBucket, priceMin, priceMax, volMin, watchOnly, watchlist, query, earnFilter, pct52Filter, sectorFilter, biasFilter, inZoneOnly]);
 
-  const bearish = useMemo(() => filtered.filter(r => r.zone === 'bearish').sort((a,b) => a.bx - b.bx), [filtered]);
-  const neutral = useMemo(() => filtered.filter(r => r.zone === 'neutral').sort((a,b) => Math.abs(a.bx) - Math.abs(b.bx)), [filtered]);
-  const bullish = useMemo(() => filtered.filter(r => r.zone === 'bullish').sort((a,b) => b.bx - a.bx), [filtered]);
+  const sortByBx = (arr, dir) =>
+    arr.slice().sort((a, b) => dir === 'asc' ? a.bx - b.bx : b.bx - a.bx);
+  const bearish = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'bearish'), zoneSort.bearish), [filtered, zoneSort.bearish]);
+  const neutral = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'neutral'), zoneSort.neutral), [filtered, zoneSort.neutral]);
+  const bullish = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'bullish'), zoneSort.bullish), [filtered, zoneSort.bullish]);
   const transitions = useMemo(() => filtered.filter(r => r.transition), [filtered]);
 
   // Keyboard nav: ↑/↓ within column, ←/→ switch columns, works in ZONES + MOVERS
@@ -594,10 +606,13 @@ export default function App() {
           <div className="hidden lg:flex flex-1 overflow-hidden">
             <div className="flex-1 grid grid-cols-3 overflow-hidden">
               <ZoneColumn label="BEARISH" range="[−10 · −2)" accent="red" rows={bearish}
+                sortDir={zoneSort.bearish} onToggleSort={() => toggleZoneSort('bearish')}
                 selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
               <ZoneColumn label="NEUTRAL" range="[−2 · +2]" accent="amber" rows={neutral}
+                sortDir={zoneSort.neutral} onToggleSort={() => toggleZoneSort('neutral')}
                 selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
               <ZoneColumn label="BULLISH" range="(+2 · +10]" accent="emerald" rows={bullish}
+                sortDir={zoneSort.bullish} onToggleSort={() => toggleZoneSort('bullish')}
                 selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
             </div>
             <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
@@ -613,8 +628,13 @@ export default function App() {
               <MobileZoneTab label="NEUTRAL" count={neutral.length} active={mobileZone === 'neutral'} accent="amber" onClick={() => setMobileZone('neutral')}/>
               <MobileZoneTab label="BULLISH" count={bullish.length} active={mobileZone === 'bullish'} accent="emerald" onClick={() => setMobileZone('bullish')}/>
             </div>
-            <div className="px-3 h-5 flex items-center justify-center text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
-              ← SWIPE TO SWITCH ZONES →
+            <div className="px-3 h-6 flex items-center justify-between text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
+              <span>← SWIPE TO SWITCH ZONES →</span>
+              <button onClick={() => toggleZoneSort(mobileZone)}
+                className="flex items-center gap-1 px-2 py-0.5 border border-zinc-800 text-zinc-400 no-tap-highlight active:border-emerald-500/50">
+                {zoneSort[mobileZone] === 'asc' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                <span className="font-bold">SORT {zoneSort[mobileZone] === 'asc' ? '−→+' : '+→−'}</span>
+              </button>
             </div>
             <div className="flex-1 overflow-hidden flex flex-col">
               <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase flex-shrink-0">
@@ -641,7 +661,8 @@ export default function App() {
         <MoversView movers={sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers}
           meta={scan.meta} selected={selected} onSelect={handleSelect}
           watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}
-          tvInterval={tvInterval} setNotes={setNotes} selectedMeta={selectedMeta} selectedRow={selectedRow} timeframe={timeframe}/>
+          tvInterval={tvInterval} setNotes={setNotes} selectedMeta={selectedMeta} selectedRow={selectedRow} timeframe={timeframe}
+          mobileMoverTab={mobileMoverTab} setMobileMoverTab={setMobileMoverTab}/>
       )}
 
       {view === 'sectors' && <SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/>}
@@ -694,21 +715,112 @@ export default function App() {
 // VIEWS
 // ============================================================================
 
-function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe }) {
-  const bullishMoves = movers.filter(m => m.delta_bx > 0).slice(0, 25);
-  const bearishMoves = movers.filter(m => m.delta_bx < 0).slice(0, 25);
+function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe, mobileMoverTab, setMobileMoverTab }) {
+  const bullishMoves = movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25);
+  const bearishMoves = movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25);
+
+  // Mobile swipe to switch between BULLISH ↔ BEARISH movers
+  const touchRef = useRef({ x: 0, y: 0, active: false });
+  const onMobileTouchStart = (e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, active: true }; };
+  const onMobileTouchEnd = (e) => {
+    if (!touchRef.current.active) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x, dy = t.clientY - touchRef.current.y;
+    touchRef.current.active = false;
+    if (Math.abs(dx) < 60 || Math.abs(dy) > 40) return;
+    if (dx < 0 && mobileMoverTab === 'bullish') setMobileMoverTab('bearish');
+    if (dx > 0 && mobileMoverTab === 'bearish') setMobileMoverTab('bullish');
+  };
+
+  const mobileRows = mobileMoverTab === 'bullish' ? bullishMoves : bearishMoves;
+
   return (
     <div className="flex-1 flex overflow-hidden">
-      <div className="flex-1 grid md:grid-cols-2 overflow-hidden">
-        <MoverColumn label="↑ BULLISH MOVES" accent="emerald" rows={bullishMoves} meta={meta}
-          selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
-        <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
-          selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+      {/* DESKTOP: side-by-side columns + detail aside */}
+      <div className="hidden lg:flex flex-1 overflow-hidden">
+        <div className="flex-1 grid grid-cols-2 overflow-hidden">
+          <MoverColumn label="↑ BULLISH MOVES" accent="emerald" rows={bullishMoves} meta={meta}
+            selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+          <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
+            selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+        </div>
+        <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
+          {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+            notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
+        </aside>
       </div>
-      <aside className="hidden lg:flex w-[520px] flex-shrink-0 border-l border-zinc-800 flex-col bg-zinc-950">
-        {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
-          notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
-      </aside>
+
+      {/* MOBILE: ZONES-style tabs + single column + swipe */}
+      <div className="lg:hidden flex-1 flex flex-col overflow-hidden"
+           onTouchStart={onMobileTouchStart} onTouchEnd={onMobileTouchEnd}>
+        <div className="flex items-stretch border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
+          <MobileZoneTab label="↑ BULLISH" count={bullishMoves.length} active={mobileMoverTab === 'bullish'} accent="emerald" onClick={() => setMobileMoverTab('bullish')}/>
+          <MobileZoneTab label="↓ BEARISH" count={bearishMoves.length} active={mobileMoverTab === 'bearish'} accent="red" onClick={() => setMobileMoverTab('bearish')}/>
+        </div>
+        <div className="px-3 h-6 flex items-center justify-center text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
+          ← SWIPE TO SWITCH →
+        </div>
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase flex-shrink-0">
+            <span className="w-14">Ticker</span>
+            <span className="flex-1 text-right">BX prev → now</span>
+            <span className="w-14 text-right">Δ delta</span>
+            <span className="w-10 text-right">Zone</span>
+          </div>
+          <div className="flex-1 overflow-y-auto col-scroll fade-in" key={mobileMoverTab}>
+            {mobileRows.length === 0 ? (
+              <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
+            ) : mobileRows.map(r => (
+              <MoverRowMobile key={r.ticker} r={r} selected={selected === r.ticker}
+                onSelect={() => onSelect(r.ticker)}
+                watched={!!watchlist[r.ticker]}
+                onToggleWatch={() => onToggleWatch(r.ticker)}
+                hasNote={!!notes[r.ticker]}/>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote }) {
+  const zone = r.current_zone;
+  const zoneColor = zone === 'bullish' ? 'text-emerald-400' : zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
+  const delta = Number(r.delta_bx);
+  const deltaColor = delta > 0 ? 'text-emerald-400' : 'text-red-400';
+  const prevBx = Number(r.prev_bx);
+  const curBx = Number(r.bx);
+  const transitioned = r.current_zone !== r.previous_zone;
+  const tArrow = transitioned ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
+
+  return (
+    <div onClick={onSelect} data-ticker={r.ticker}
+      className={`flex items-center px-3 h-11 border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
+        selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900'
+      }`}>
+      <div className="w-14 flex items-center gap-1">
+        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }} className="p-0.5 -ml-0.5 no-tap-highlight">
+          <Star className={`w-3 h-3 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
+        </button>
+        <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.ticker}</span>
+      </div>
+      <div className="flex-1 text-right text-[10px] tabular-nums pr-2">
+        <span className={zoneColor}>
+          {prevBx >= 0 ? '+' : ''}{prevBx.toFixed(1)}→<span className="font-bold">{curBx >= 0 ? '+' : ''}{curBx.toFixed(1)}</span>
+        </span>
+      </div>
+      <div className="w-14 text-right">
+        <span className={`text-[12px] font-bold tabular-nums ${deltaColor}`}>
+          {delta >= 0 ? '+' : ''}{delta.toFixed(2)}
+        </span>
+      </div>
+      <div className="w-10 flex items-center justify-end gap-1 pl-1">
+        {hasNote && <StickyNote className="w-2.5 h-2.5 text-amber-400/60 flex-shrink-0" />}
+        <span className="text-[9px] font-bold tracking-wider">
+          {tArrow ? <span className={zoneColor}>{tArrow}</span> : <span className={`${zoneColor} opacity-50 uppercase`}>{zone[0]}</span>}
+        </span>
+      </div>
     </div>
   );
 }
@@ -902,13 +1014,14 @@ function MobileZoneTab({ label, count, active, accent, onClick }) {
   );
 }
 
-function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes }) {
+function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes, sortDir, onToggleSort }) {
   const accentMap = {
-    red:     { text: 'text-red-400',     bg: 'bg-red-500/5',     border: 'border-red-500/30',     dot: 'bg-red-500' },
-    amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/5',   border: 'border-amber-500/30',   dot: 'bg-amber-500' },
-    emerald: { text: 'text-emerald-400', bg: 'bg-emerald-500/5', border: 'border-emerald-500/30', dot: 'bg-emerald-500' },
+    red:     { text: 'text-red-400',     bg: 'bg-red-500/5',     border: 'border-red-500/30',     dot: 'bg-red-500',     hoverBorder: 'hover:border-red-500/60',     hoverBg: 'hover:bg-red-500/10' },
+    amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/5',   border: 'border-amber-500/30',   dot: 'bg-amber-500',   hoverBorder: 'hover:border-amber-500/60',   hoverBg: 'hover:bg-amber-500/10' },
+    emerald: { text: 'text-emerald-400', bg: 'bg-emerald-500/5', border: 'border-emerald-500/30', dot: 'bg-emerald-500', hoverBorder: 'hover:border-emerald-500/60', hoverBg: 'hover:bg-emerald-500/10' },
   };
   const c = accentMap[accent];
+  const SortArrow = sortDir === 'asc' ? ChevronUp : ChevronDown;
   return (
     <div className="flex flex-col overflow-hidden border-r border-zinc-800 last:border-r-0">
       <div className={`flex items-center justify-between px-3 h-10 border-b ${c.border} ${c.bg}`}>
@@ -917,7 +1030,12 @@ function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist,
           <span className={`text-[11px] font-bold tracking-[0.3em] ${c.text}`}>{label}</span>
           <span className="text-[9px] text-zinc-500 tracking-wider">{range}</span>
         </div>
-        <span className={`text-[11px] font-bold ${c.text}`}>{rows.length}</span>
+        <button onClick={onToggleSort}
+          title={`Sort by BX ${sortDir === 'asc' ? 'ascending (negative → positive)' : 'descending (positive → negative)'} — click to flip`}
+          className={`flex items-center gap-1 px-2 py-0.5 border ${c.border} bg-zinc-950/40 ${c.hoverBg} ${c.hoverBorder} transition-colors no-tap-highlight`}>
+          <SortArrow className={`w-3 h-3 ${c.text}`} />
+          <span className={`text-[11px] font-bold ${c.text}`}>{rows.length}</span>
+        </button>
       </div>
       <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase">
         <span className="w-14">Ticker</span><span className="w-12 text-right">BX</span>
@@ -988,6 +1106,29 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const watched = !!watchlist[ticker];
   const [tickerBacktest, setTickerBacktest] = useState([]);
   const [aiCopied, setAiCopied] = useState(false);
+  const [aiError,  setAiError]  = useState(false);
+
+  // Robust clipboard copy: modern API → fallback to hidden textarea → flag error
+  const copyToClipboard = async (text) => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fall through to fallback */ }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  };
 
   useEffect(() => {
     if (!ticker || !compact) return;
@@ -1033,9 +1174,15 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       ``,
       `EARNINGS: ${meta.earn ? `${meta.earn} (${meta.daysToEarn}d out)` : 'no upcoming earnings in next 90d'}`,
     ].filter(Boolean).join('\n');
-    navigator.clipboard.writeText(lines).then(() => {
-      setAiCopied(true);
-      setTimeout(() => setAiCopied(false), 2000);
+    copyToClipboard(lines).then(ok => {
+      if (ok) {
+        setAiCopied(true);
+        setAiError(false);
+        setTimeout(() => setAiCopied(false), 2000);
+      } else {
+        setAiError(true);
+        setTimeout(() => setAiError(false), 3000);
+      }
     });
   };
 
@@ -1050,9 +1197,13 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
         <button onClick={generateAIPrompt}
-          className={`p-1.5 border text-[9px] tracking-wider flex items-center gap-1 ${aiCopied ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' : 'border-zinc-800 text-zinc-400 hover:border-purple-500/50 active:border-purple-500/50'}`}
+          className={`p-1.5 border text-[9px] tracking-wider flex items-center gap-1 ${
+            aiError ? 'border-red-500 text-red-400 bg-red-500/10' :
+            aiCopied ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' :
+            'border-zinc-800 text-zinc-400 hover:border-purple-500/50 active:border-purple-500/50'
+          }`}
           title="Copy AI prompt to clipboard, paste into Claude.ai or ChatGPT">
-          {aiCopied ? <><Check className="w-3 h-3" />COPIED</> : <><Sparkles className="w-3 h-3" />AI</>}
+          {aiError ? <><X className="w-3 h-3" />FAILED</> : aiCopied ? <><Check className="w-3 h-3" />COPIED</> : <><Sparkles className="w-3 h-3" />AI</>}
         </button>
         <button onClick={() => onToggleWatch(ticker)} className="p-1.5 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50">
           <Star className={`w-3.5 h-3.5 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-500'}`} />
