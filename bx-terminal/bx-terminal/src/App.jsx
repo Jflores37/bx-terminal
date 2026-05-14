@@ -6,23 +6,23 @@ import {
 } from 'lucide-react';
 
 // ============================================================================
-// BX TERMINAL v3 — LEAPS Lens with Market Bias, Backtest, AI Brief, Mobile polish
+// EDGE v1.0 — LEAPS Intelligence Terminal
 // ============================================================================
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const SCAN_META = {
-  daily:   { tvInterval: 'D', label: 'DAILY'   },
-  weekly:  { tvInterval: 'W', label: 'WEEKLY'  },
-  monthly: { tvInterval: 'M', label: 'MONTHLY' },
+  daily:   { tvInterval: 'D', label: 'Daily'   },
+  weekly:  { tvInterval: 'W', label: 'Weekly'  },
+  monthly: { tvInterval: 'M', label: 'Monthly' },
 };
 
 const VIEWS = {
-  zones:    { label: 'ZONES',    icon: Activity   },
-  movers:   { label: 'MOVERS',   icon: TrendingUp },
-  sectors:  { label: 'SECTORS',  icon: Layers     },
-  backtest: { label: 'BACKTEST', icon: History    },
+  zones:    { label: 'Zones',    icon: Activity   },
+  movers:   { label: 'Movers',   icon: TrendingUp },
+  sectors:  { label: 'Sectors',  icon: Layers     },
+  backtest: { label: 'Backtest', icon: History    },
 };
 
 async function sbFetch(path) {
@@ -67,15 +67,12 @@ async function fetchScan(timeframe) {
 async function fetchMovers(timeframe) {
   return sbFetch(`bx_movers?timeframe=eq.${timeframe}&select=*&order=abs_delta.desc&limit=100`);
 }
-
 async function fetchSectors(timeframe) {
   return sbFetch(`sector_pulse?timeframe=eq.${timeframe}&select=*&order=avg_bx.desc`);
 }
-
 async function fetchBacktestSummary(timeframe) {
   return sbFetch(`bx_backtest_summary?timeframe=eq.${timeframe}&select=*`);
 }
-
 async function fetchBacktestForTicker(ticker, timeframe) {
   return sbFetch(`bx_backtest_results?ticker=eq.${ticker}&timeframe=eq.${timeframe}&select=*&order=signal_date.desc&limit=20`);
 }
@@ -84,25 +81,24 @@ function zoneOf(bx){ if(bx<-2) return 'bearish'; if(bx>2) return 'bullish'; retu
 function transitionOf(cur,prev){ if(prev==null) return null; const a=zoneOf(prev),b=zoneOf(cur); return a===b?null:{from:a,to:b}; }
 
 const MC_BUCKETS = [
-  { label: 'ALL', min: 0, max: Infinity }, { label: 'MEGA', min: 200, max: Infinity },
-  { label: 'LARGE', min: 10, max: 200 }, { label: 'MID', min: 2, max: 10 }, { label: 'SMALL', min: 0, max: 2 },
+  { label: 'All',   min: 0,   max: Infinity },
+  { label: 'Mega',  min: 200, max: Infinity },
+  { label: 'Large', min: 10,  max: 200 },
+  { label: 'Mid',   min: 2,   max: 10 },
+  { label: 'Small', min: 0,   max: 2 },
 ];
-const MC_BUCKETS_LONG = ['ALL','MEGA >200B','LARGE 10-200B','MID 2-10B','SMALL <2B'];
-
 const EARN_BUCKETS = [
-  { label: 'ANY', days: null }, { label: '>7d', days: 7 }, { label: '>14d', days: 14 },
-  { label: '>21d', days: 21 }, { label: '>30d', days: 30 },
+  { label: 'Any',  days: null }, { label: '>7d',  days: 7 },
+  { label: '>14d', days: 14 },   { label: '>21d', days: 21 }, { label: '>30d', days: 30 },
 ];
-
 const PCT52_BUCKETS = [
-  { label: 'ANY', min: 0, max: 100 }, { label: 'NEAR HIGHS', min: 70, max: 100 },
-  { label: 'MID-RANGE', min: 30, max: 70 }, { label: 'NEAR LOWS', min: 0, max: 30 },
+  { label: 'Any',       min: 0,  max: 100 },
+  { label: 'Near Highs',min: 70, max: 100 },
+  { label: 'Mid-Range', min: 30, max: 70 },
+  { label: 'Near Lows', min: 0,  max: 30 },
 ];
-
 const BIAS_BUCKETS = [
-  { label: 'ANY',  v: null },
-  { label: 'BULL', v: 'bullish' },
-  { label: 'BEAR', v: 'bearish' },
+  { label: 'Any',  v: null }, { label: 'Bull', v: 'bullish' }, { label: 'Bear', v: 'bearish' },
 ];
 
 function TVChart({ ticker, interval }) {
@@ -110,7 +106,7 @@ function TVChart({ ticker, interval }) {
     `https://s.tradingview.com/widgetembed/?frameElementId=tv_${ticker}` +
     `&symbol=${encodeURIComponent(ticker)}&interval=${interval}` +
     `&hidesidetoolbar=0&symboledit=1&saveimage=0` +
-    `&toolbarbg=0a0a0b&theme=dark&style=1&timezone=Etc%2FUTC` +
+    `&toolbarbg=0f1015&theme=dark&style=1&timezone=Etc%2FUTC` +
     `&withdateranges=1&hideideas=1&hideideasbutton=1&locale=en`;
   return (
     <iframe key={`${ticker}-${interval}`} src={src} title={`${ticker} ${interval}`}
@@ -120,15 +116,14 @@ function TVChart({ ticker, interval }) {
 
 function loadLocal(key, fb) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fb; } catch { return fb; } }
 function saveLocal(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
-
 function earnLevel(d) { if (d == null || d < 0) return null; if (d < 7) return 'imminent'; if (d <= 14) return 'soon'; return null; }
 
-function EarnBadge({ daysToEarn, mobile }) {
+function EarnBadge({ daysToEarn }) {
   const level = earnLevel(daysToEarn);
   if (!level) return null;
   const imm = level === 'imminent';
   return (
-    <span className={`inline-flex items-center gap-0.5 ${mobile ? 'text-[9px]' : 'text-[8px]'} font-bold tracking-wider ${imm ? 'text-red-400' : 'text-amber-400'}`}>
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${imm ? 'text-[#ff3366]' : 'text-[#ffa940]'}`}>
       {imm ? '⚠' : '🔔'}{daysToEarn}d
     </span>
   );
@@ -137,22 +132,21 @@ function EarnBadge({ daysToEarn, mobile }) {
 function AlignDots({ score }) {
   if (score == null) return null;
   const abs = Math.abs(score);
-  const color = score > 0 ? 'bg-emerald-400' : score < 0 ? 'bg-red-400' : 'bg-zinc-700';
+  const color = score > 0 ? 'bg-[#00d484] shadow-[0_0_6px_rgba(0,212,132,0.5)]' : score < 0 ? 'bg-[#ff3366] shadow-[0_0_6px_rgba(255,51,102,0.5)]' : 'bg-[#52525b]';
   return (
-    <div className="flex items-center gap-0.5">
-      {[0,1,2].map(i => <div key={i} className={`w-1 h-1 rounded-full ${i < abs ? color : 'bg-zinc-800'}`} />)}
+    <div className="flex items-center gap-[3px]">
+      {[0,1,2].map(i => <div key={i} className={`w-[5px] h-[5px] rounded-full ${i < abs ? color : 'bg-[#1a1c22]'}`} />)}
     </div>
   );
 }
 
-function BiasBadge({ direction, inZone, compact }) {
+function BiasBadge({ direction, inZone }) {
   if (!direction) return null;
   const bull = direction === 'bullish';
-  const c = bull ? 'text-emerald-400' : 'text-red-400';
-  const arrow = bull ? '▲' : '▼';
   return (
-    <span className={`inline-flex items-center gap-0.5 ${compact ? 'text-[8px]' : 'text-[9px]'} font-bold tracking-wider ${c}`}>
-      {arrow}{inZone ? '·Z' : ''}
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold ${bull ? 'text-[#00d484]' : 'text-[#ff3366]'}`}>
+      {bull ? '▲' : '▼'}
+      {inZone && <span className="px-1 py-px bg-[rgba(180,242,0,0.12)] text-[#b4f200] rounded text-[9px] font-bold tracking-wider">Z</span>}
     </span>
   );
 }
@@ -160,19 +154,19 @@ function BiasBadge({ direction, inZone, compact }) {
 function CollapsibleSection({ title, icon: Icon, summary, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="flex-shrink-0 border-b border-zinc-800">
+    <div className="flex-shrink-0 border-b border-[rgba(255,255,255,0.06)]">
       <button onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 h-9 hover:bg-zinc-900/50 active:bg-zinc-900 transition-colors group">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon className="w-3 h-3 text-zinc-500 group-hover:text-zinc-400 flex-shrink-0" />}
-          <span className="text-[10px] tracking-[0.3em] text-zinc-500 group-hover:text-zinc-400">{title}</span>
+        className="w-full flex items-center justify-between px-5 h-11 hover:bg-[#0f1015] active:bg-[#15171c] transition-colors group">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {Icon && <Icon className="w-[14px] h-[14px] text-[#52525b] group-hover:text-[#a1a1aa] flex-shrink-0" strokeWidth={2} />}
+          <span className="text-[12px] font-medium text-[#a1a1aa] group-hover:text-[#fafafa]">{title}</span>
         </div>
-        <div className="flex items-center gap-2.5">
-          {summary && <span className="text-[10px] tabular-nums">{summary}</span>}
-          <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-3">
+          {summary && <span className="text-[12px] tabular-nums">{summary}</span>}
+          <ChevronDown className={`w-[14px] h-[14px] text-[#52525b] transition-transform duration-200 ${open ? 'rotate-180' : ''}`} strokeWidth={2} />
         </div>
       </button>
-      {open && <div className="border-t border-zinc-900 bg-zinc-950/40">{children}</div>}
+      {open && <div className="border-t border-[rgba(255,255,255,0.04)] bg-[#0a0b0e]/40">{children}</div>}
     </div>
   );
 }
@@ -202,18 +196,13 @@ export default function App() {
   const [inZoneOnly, setInZoneOnly] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [mobileZone, setMobileZone] = useState('bullish');
-  const [mobileMoverTab, setMobileMoverTab] = useState(() => loadLocal('bx_mobile_mover_tab', 'bullish'));
-  useEffect(() => { saveLocal('bx_mobile_mover_tab', mobileMoverTab); }, [mobileMoverTab]);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  const [zoneSort, setZoneSort] = useState(() => loadLocal('bx_zone_sort', {
-    bearish: 'asc',   // -10 → -2 at top (most extreme bearish first)
-    neutral: 'asc',   // -2 → +2 (negative, zero, positive) per request
-    bullish: 'desc',  // +10 → +2 at top (most extreme bullish first)
-  }));
+  const [mobileMoverTab, setMobileMoverTab] = useState(() => loadLocal('bx_mobile_mover_tab', 'bullish'));
+  useEffect(() => { saveLocal('bx_mobile_mover_tab', mobileMoverTab); }, [mobileMoverTab]);
+  const [zoneSort, setZoneSort] = useState(() => loadLocal('bx_zone_sort', { bearish: 'asc', neutral: 'asc', bullish: 'desc' }));
   useEffect(() => { saveLocal('bx_zone_sort', zoneSort); }, [zoneSort]);
-  const toggleZoneSort = (zone) =>
-    setZoneSort(s => ({ ...s, [zone]: s[zone] === 'asc' ? 'desc' : 'asc' }));
+  const toggleZoneSort = (zone) => setZoneSort(s => ({ ...s, [zone]: s[zone] === 'asc' ? 'desc' : 'asc' }));
 
   useEffect(() => {
     let cancelled = false;
@@ -232,7 +221,6 @@ export default function App() {
   useEffect(() => { saveLocal('bx_watchlist', watchlist); }, [watchlist]);
   useEffect(() => { saveLocal('bx_notes', notes); }, [notes]);
 
-  // Auto-scroll selected row into view
   useEffect(() => {
     if (!selected) return;
     const els = document.querySelectorAll(`[data-ticker="${selected}"]`);
@@ -270,61 +258,46 @@ export default function App() {
     });
   }, [decorated, mcBucket, priceMin, priceMax, volMin, watchOnly, watchlist, query, earnFilter, pct52Filter, sectorFilter, biasFilter, inZoneOnly]);
 
-  const sortByBx = (arr, dir) =>
-    arr.slice().sort((a, b) => dir === 'asc' ? a.bx - b.bx : b.bx - a.bx);
+  const sortByBx = (arr, dir) => arr.slice().sort((a, b) => dir === 'asc' ? a.bx - b.bx : b.bx - a.bx);
   const bearish = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'bearish'), zoneSort.bearish), [filtered, zoneSort.bearish]);
   const neutral = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'neutral'), zoneSort.neutral), [filtered, zoneSort.neutral]);
   const bullish = useMemo(() => sortByBx(filtered.filter(r => r.zone === 'bullish'), zoneSort.bullish), [filtered, zoneSort.bullish]);
   const transitions = useMemo(() => filtered.filter(r => r.transition), [filtered]);
 
-  // Keyboard nav: ↑/↓ within column, ←/→ switch columns, works in ZONES + MOVERS
-  // CAPTURE phase so we beat Safari's default arrow-key scroll on the column.
   useEffect(() => {
     const handler = (e) => {
       if (mobileFiltersOpen || showAlerts || mobileDetailOpen) return;
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
-
       const isVert = e.key === 'ArrowUp' || e.key === 'ArrowDown';
       const isHoriz = e.key === 'ArrowLeft' || e.key === 'ArrowRight';
       if (!isVert && !isHoriz) return;
       if (view !== 'zones' && view !== 'movers') return;
-
-      // Stop the column scroll IMMEDIATELY, before we even compute anything
-      e.preventDefault();
-      e.stopPropagation();
-
+      e.preventDefault(); e.stopPropagation();
       if (view === 'zones') {
         const lists = { bearish, neutral, bullish };
         const order = ['bearish', 'neutral', 'bullish'];
-        // Determine current zone from the selected ticker (use unfiltered data for zone lookup)
         const selRow = scan.data.find(r => r.t === selected);
         let curZone = selRow ? zoneOf(selRow.bx) : 'neutral';
         let list = lists[curZone];
-        // If the selected ticker isn't in the (filtered) list, find a fallback
         if (!list || list.length === 0) {
-          // Try other zones in order
           for (const z of order) { if (lists[z].length) { curZone = z; list = lists[z]; break; } }
           if (!list || list.length === 0) return;
         }
         const idx = list.findIndex(r => r.t === selected);
-
         if (isVert) {
           const len = list.length;
           if (idx === -1) { setSelected(list[0].t); return; }
           const next = e.key === 'ArrowDown' ? (idx + 1) % len : (idx - 1 + len) % len;
           setSelected(list[next].t);
         } else {
-          // ←/→ switch columns
           const curIdx = order.indexOf(curZone);
           const dir = e.key === 'ArrowRight' ? 1 : -1;
-          // Find the next non-empty column in that direction
           for (let step = 1; step <= 3; step++) {
             const ni = curIdx + dir * step;
             if (ni < 0 || ni > 2) break;
             const targetList = lists[order[ni]];
             if (targetList.length === 0) continue;
-            // Land on same relative position if possible
             const targetIdx = Math.min(Math.max(idx, 0), targetList.length - 1);
             setSelected(targetList[targetIdx].t);
             return;
@@ -336,18 +309,16 @@ export default function App() {
         const inBull = bullishMoves.findIndex(r => r.ticker === selected);
         const inBear = bearishMoves.findIndex(r => r.ticker === selected);
         let curList, curIdx;
-        if (inBull >= 0)      { curList = bullishMoves; curIdx = inBull; }
+        if (inBull >= 0) { curList = bullishMoves; curIdx = inBull; }
         else if (inBear >= 0) { curList = bearishMoves; curIdx = inBear; }
-        else                  { curList = bullishMoves.length ? bullishMoves : bearishMoves; curIdx = -1; }
+        else { curList = bullishMoves.length ? bullishMoves : bearishMoves; curIdx = -1; }
         if (!curList || curList.length === 0) return;
-
         if (isVert) {
           const len = curList.length;
           if (curIdx === -1) { setSelected(curList[0].ticker); return; }
           const next = e.key === 'ArrowDown' ? (curIdx + 1) % len : (curIdx - 1 + len) % len;
           setSelected(curList[next].ticker);
         } else {
-          // ←/→ switch between bullish and bearish movers
           const targetList = curList === bullishMoves ? bearishMoves : bullishMoves;
           if (!targetList.length) return;
           const targetIdx = Math.min(Math.max(curIdx, 0), targetList.length - 1);
@@ -384,7 +355,6 @@ export default function App() {
   const hasActiveFilters = query || priceMin || priceMax || volMin || mcBucket !== 0 || watchOnly ||
     earnFilter !== 0 || pct52Filter !== 0 || sectorFilter || biasFilter !== 0 || inZoneOnly;
 
-  // Mobile swipe between zone tabs
   const touchRef = useRef({ x: 0, y: 0, active: false });
   const onMobileTouchStart = (e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, active: true }; };
   const onMobileTouchEnd = (e) => {
@@ -400,296 +370,261 @@ export default function App() {
   };
 
   if (loading && scan.data.length === 0) {
-    return <div className="w-full h-screen bg-zinc-950 text-emerald-400 flex items-center justify-center"><span className="animate-pulse text-xs tracking-[0.3em]">LOADING LEAPS LENS…</span></div>;
+    return (
+      <div className="w-full h-screen bg-[#08090b] flex items-center justify-center">
+        <GlobalStyles />
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-md bg-[#b4f200] shadow-[0_0_24px_rgba(180,242,0,0.4)] animate-pulse"></div>
+          <span className="text-[12px] text-[#71717a] tracking-wider font-medium">loading edge…</span>
+        </div>
+      </div>
+    );
   }
   if (error && scan.data.length === 0) {
     return (
-      <div className="w-full h-screen bg-zinc-950 text-red-400 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <div className="w-full h-screen bg-[#08090b] text-[#ff3366] flex flex-col items-center justify-center gap-3 px-6 text-center">
+        <GlobalStyles />
         <AlertCircle className="w-6 h-6" />
-        <span className="text-xs tracking-[0.3em]">SCAN FETCH FAILED</span>
-        <span className="text-[11px] text-zinc-500 max-w-md">{error}</span>
-        <button onClick={refresh} className="mt-2 px-4 py-2 border border-zinc-800 text-zinc-300 text-[10px] tracking-wider active:border-emerald-500">RETRY</button>
+        <span className="text-[12px] tracking-wider">data unavailable</span>
+        <span className="text-[11px] text-[#71717a] max-w-md">{error}</span>
+        <button onClick={refresh} className="mt-2 px-4 py-2 border border-[rgba(255,255,255,0.08)] hover:border-[#b4f200]/40 text-[#fafafa] text-[11px] rounded-md transition-colors">Retry</button>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-screen bg-zinc-950 text-zinc-100 overflow-hidden flex flex-col">
-      <style>{`
-        .scanlines::before { content:''; position:absolute; inset:0; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px); pointer-events:none; }
-        .live-dot { animation: pulse 1.8s ease-in-out infinite; }
-        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
-        input::placeholder { color: #52525b; }
-        .col-scroll::-webkit-scrollbar { width: 6px; }
-        .col-scroll::-webkit-scrollbar-track { background: #0a0a0b; }
-        .col-scroll::-webkit-scrollbar-thumb { background: #27272a; }
-        .col-scroll::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .slide-up { animation: slideUp 0.2s ease-out; }
-        @keyframes slideRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-        .slide-right { animation: slideRight 0.2s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .fade-in { animation: fadeIn 0.15s ease-out; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spinning { animation: spin 0.8s linear infinite; }
-        .no-tap-highlight { -webkit-tap-highlight-color: transparent; }
-      `}</style>
+    <div className="w-full h-screen bg-[#08090b] text-[#fafafa] overflow-hidden flex flex-col font-edge relative">
+      <GlobalStyles />
 
-      <header className="flex-shrink-0 border-b border-zinc-800 bg-zinc-950 relative scanlines">
-        <div className="flex items-center justify-between px-3 md:px-4 h-11 md:h-12">
-          <div className="flex items-center gap-3 md:gap-6 min-w-0">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Radio className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400 live-dot" />
-              <span className="text-[10px] md:text-[11px] tracking-[0.25em] md:tracking-[0.3em] font-bold text-emerald-400">BX.TERMINAL</span>
-              <span className="hidden md:inline text-[10px] text-zinc-600">v3.0 · LEAPS LENS</span>
-            </div>
-            <div className="hidden md:block h-4 w-px bg-zinc-800" />
-            <div className="hidden md:flex items-center gap-1 text-[10px] text-zinc-500">
-              <span>SCAN:</span><span className="text-zinc-300">{scan.date || '—'}</span>
-              <span className="ml-3">TICKERS:</span><span className="text-zinc-300">{scan.data.length}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 md:gap-3 text-[10px]">
-            <div className="hidden md:flex items-center gap-2">
-              <span className="text-zinc-500">BEAR</span><span className="text-red-400 font-bold">{bearish.length}</span>
-              <span className="text-zinc-500">NEU</span><span className="text-amber-400 font-bold">{neutral.length}</span>
-              <span className="text-zinc-500">BULL</span><span className="text-emerald-400 font-bold">{bullish.length}</span>
-            </div>
-            <button onClick={refresh} disabled={loading} className="flex items-center gap-1 px-2 py-1 border border-zinc-800 active:border-emerald-500/50 md:hover:border-emerald-500/50 text-[10px] tracking-wider disabled:opacity-50 no-tap-highlight">
-              <RefreshCw className={`w-3 h-3 text-emerald-400 ${loading ? 'spinning' : ''}`} />
-            </button>
-            <button onClick={() => setShowAlerts(true)} className="flex items-center gap-1.5 px-2 py-1 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50 text-[10px] tracking-wider no-tap-highlight">
-              <AlertCircle className="w-3 h-3 text-amber-400" />
-              <span className="hidden md:inline text-zinc-300">ALERTS</span>
-              <span className="text-amber-400 font-bold">{transitions.length}</span>
-            </button>
-          </div>
-        </div>
+      {/* Ambient background */}
+      <div className="absolute inset-0 pointer-events-none z-0">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(180,242,0,0.04)_0%,transparent_40%),radial-gradient(circle_at_100%_0%,rgba(0,212,132,0.02)_0%,transparent_30%)]"></div>
+        <div className="absolute inset-0 bg-dot-grid opacity-40"></div>
+      </div>
 
-        <div className="flex items-stretch border-t border-zinc-800">
-          {Object.keys(SCAN_META).map(tf => {
-            const active = tf === timeframe;
-            return (
-              <button key={tf} onClick={() => setTimeframe(tf)}
-                className={`flex-1 md:flex-none md:px-6 h-9 text-[11px] tracking-[0.3em] border-r border-zinc-800 transition-colors no-tap-highlight ${
-                  active ? 'bg-zinc-900 text-emerald-400 border-b-2 border-b-emerald-400' : 'text-zinc-500 active:text-zinc-200 md:hover:text-zinc-200 md:hover:bg-zinc-900/50'
-                }`}>{SCAN_META[tf].label}</button>
-            );
-          })}
-          <div className="hidden md:flex ml-auto px-4 text-[10px] text-zinc-500 items-center gap-2">
-            <span>CHART.INTERVAL:</span><span className="text-zinc-200">{tvInterval}</span>
-          </div>
-        </div>
+      <div className="relative z-10 flex flex-col h-full">
 
-        <div className="flex items-stretch border-t border-zinc-800 bg-zinc-950/80 overflow-x-auto">
-          {Object.entries(VIEWS).map(([k, v]) => {
-            const active = k === view;
-            const Icon = v.icon;
-            return (
-              <button key={k} onClick={() => setView(k)}
-                className={`flex-1 md:flex-none md:px-5 h-8 flex items-center justify-center gap-1.5 text-[10px] tracking-[0.25em] border-r border-zinc-800 transition-colors no-tap-highlight ${
-                  active ? 'bg-zinc-900 text-emerald-400 border-b-2 border-b-emerald-400' : 'text-zinc-500 active:text-zinc-200 md:hover:text-zinc-200'
-                }`}>
-                <Icon className="w-3 h-3" />{v.label}
+        {/* HEADER */}
+        <header className="flex-shrink-0 backdrop-blur-xl bg-[rgba(8,9,11,0.7)] border-b border-[rgba(255,255,255,0.06)]">
+          <div className="flex items-center justify-between px-4 lg:px-5 h-14">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="brand-logo"></div>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-[16px] font-semibold tracking-tight">edge</span>
+                  <span className="hidden lg:block text-[10px] text-[#52525b] tracking-wider font-mono uppercase">leaps · intelligence</span>
+                </div>
+              </div>
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-[#0f1015] border border-[rgba(255,255,255,0.06)] rounded-full text-[11px]">
+                <span className="w-1.5 h-1.5 bg-[#b4f200] rounded-full shadow-[0_0_8px_rgba(180,242,0,0.6)] animate-pulse-slow"></span>
+                <span className="text-[#a1a1aa] font-mono">LIVE</span>
+                <span className="text-[#52525b]">·</span>
+                <span className="text-[#71717a] font-mono">{scan.date || '—'}</span>
+                <span className="text-[#52525b]">·</span>
+                <span className="text-[#71717a] font-mono">{scan.data.length} tickers</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="hidden md:flex items-center gap-3 mr-2 text-[11px]">
+                <span className="flex items-center gap-1.5"><span className="text-[#52525b]">Bear</span><span className="text-[#ff3366] font-semibold tabular-nums">{bearish.length}</span></span>
+                <span className="flex items-center gap-1.5"><span className="text-[#52525b]">Neu</span><span className="text-[#a1a1aa] font-semibold tabular-nums">{neutral.length}</span></span>
+                <span className="flex items-center gap-1.5"><span className="text-[#52525b]">Bull</span><span className="text-[#00d484] font-semibold tabular-nums">{bullish.length}</span></span>
+              </div>
+              <button onClick={refresh} disabled={loading} className="btn-icon-edge" title="Refresh">
+                <RefreshCw className={`w-[14px] h-[14px] ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
               </button>
-            );
-          })}
-        </div>
+              <button onClick={() => setShowAlerts(true)} className="btn-edge" title="Alerts">
+                <AlertCircle className="w-[14px] h-[14px]" strokeWidth={2} />
+                <span className="hidden md:inline ml-1.5">Alerts</span>
+                <span className="ml-1 text-[#b4f200] font-mono font-semibold">{transitions.length}</span>
+              </button>
+            </div>
+          </div>
 
+          {/* Timeframe tabs */}
+          <div className="flex items-center px-4 lg:px-5 gap-1 border-t border-[rgba(255,255,255,0.06)] h-11">
+            {Object.keys(SCAN_META).map(tf => {
+              const active = tf === timeframe;
+              return (
+                <button key={tf} onClick={() => setTimeframe(tf)}
+                  className={`tab-edge ${active ? 'tab-edge-active' : ''}`}>{SCAN_META[tf].label}</button>
+              );
+            })}
+            <div className="flex-1"></div>
+            <span className="hidden md:flex items-center gap-1.5 text-[10px] text-[#52525b] font-mono tracking-wider">
+              <span>CHART</span><span className="text-[#a1a1aa]">{tvInterval}</span>
+            </span>
+          </div>
+
+          {/* View tabs */}
+          <div className="flex items-center px-4 lg:px-5 gap-0.5 border-t border-[rgba(255,255,255,0.06)] h-10 overflow-x-auto">
+            {Object.entries(VIEWS).map(([k, v]) => {
+              const active = k === view;
+              const Icon = v.icon;
+              return (
+                <button key={k} onClick={() => setView(k)}
+                  className={`tab-pill-edge ${active ? 'tab-pill-edge-active' : ''}`}>
+                  <Icon className="w-[12px] h-[12px]" strokeWidth={2.5} />
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {view === 'zones' && (
+            <div className="lg:hidden flex items-stretch border-t border-[rgba(255,255,255,0.06)] h-9 text-[11px]">
+              <div className="flex-1 flex items-center justify-center gap-1.5"><span className="text-[#52525b]">Bear</span><span className="text-[#ff3366] font-semibold tabular-nums">{bearish.length}</span></div>
+              <div className="flex-1 flex items-center justify-center gap-1.5 border-l border-r border-[rgba(255,255,255,0.06)]"><span className="text-[#52525b]">Neu</span><span className="text-[#a1a1aa] font-semibold tabular-nums">{neutral.length}</span></div>
+              <div className="flex-1 flex items-center justify-center gap-1.5"><span className="text-[#52525b]">Bull</span><span className="text-[#00d484] font-semibold tabular-nums">{bullish.length}</span></div>
+            </div>
+          )}
+
+          {/* Filters (desktop) */}
+          {view !== 'sectors' && view !== 'backtest' && (
+            <div className="hidden md:flex items-center gap-3 px-4 lg:px-5 h-12 border-t border-[rgba(255,255,255,0.06)] overflow-x-auto">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Search className="w-[13px] h-[13px] text-[#52525b]" strokeWidth={2} />
+                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search ticker…" className="search-edge w-36" />
+              </div>
+              <div className="filter-group-edge">
+                <span className="filter-label-edge">Cap</span>
+                {MC_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setMcBucket(i)} className={`chip-edge ${mcBucket === i ? 'chip-edge-active' : ''}`}>{b.label}</button>)}
+              </div>
+              <div className="filter-group-edge">
+                <span className="filter-label-edge">Bias</span>
+                {BIAS_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setBiasFilter(i)} className={`chip-edge ${biasFilter === i ? 'chip-edge-active' : ''}`}>{b.label}</button>)}
+                <button onClick={() => setInZoneOnly(z => !z)} className={`chip-edge ${inZoneOnly ? 'chip-edge-active' : ''}`}>In-Zone</button>
+              </div>
+              <div className="filter-group-edge">
+                <span className="filter-label-edge">Earn</span>
+                {EARN_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setEarnFilter(i)} className={`chip-edge ${earnFilter === i ? 'chip-edge-active' : ''}`}>{b.label}</button>)}
+              </div>
+              <div className="filter-group-edge">
+                <span className="filter-label-edge">52W</span>
+                {PCT52_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setPct52Filter(i)} className={`chip-edge ${pct52Filter === i ? 'chip-edge-active' : ''}`}>{b.label}</button>)}
+              </div>
+              <button onClick={() => setWatchOnly(w => !w)} className={`chip-edge inline-flex items-center gap-1.5 ${watchOnly ? 'chip-edge-active' : ''}`}>
+                <Star className={`w-[11px] h-[11px] ${watchOnly ? 'fill-current' : ''}`} strokeWidth={2} />
+                Watchlist <span className="text-[#52525b]">({Object.keys(watchlist).length})</span>
+              </button>
+              {hasActiveFilters && <button onClick={clearFilters} className="text-[11px] text-[#52525b] hover:text-[#ff3366] flex-shrink-0">Clear</button>}
+            </div>
+          )}
+
+          {/* Filters (mobile) */}
+          {view !== 'sectors' && view !== 'backtest' && (
+            <div className="md:hidden flex items-center gap-2 px-3 h-11 border-t border-[rgba(255,255,255,0.06)]">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <Search className="w-[13px] h-[13px] text-[#52525b] flex-shrink-0" strokeWidth={2} />
+                <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search…" className="search-edge w-full" />
+              </div>
+              <button onClick={() => setWatchOnly(w => !w)} className={`btn-edge !px-2 ${watchOnly ? '!text-[#b4f200] !border-[#b4f200]/40' : ''}`}>
+                <Star className={`w-[13px] h-[13px] ${watchOnly ? 'fill-current' : ''}`} strokeWidth={2} />
+              </button>
+              <button onClick={() => setMobileFiltersOpen(true)} className={`btn-edge !px-2 ${hasActiveFilters ? '!text-[#b4f200] !border-[#b4f200]/40' : ''}`}>
+                <SlidersHorizontal className="w-[13px] h-[13px]" strokeWidth={2} />
+                <span className="ml-1">Filters</span>
+                {hasActiveFilters && <span className="ml-1 w-1.5 h-1.5 bg-[#b4f200] rounded-full"></span>}
+              </button>
+            </div>
+          )}
+        </header>
+
+        {/* Active sector chip */}
+        {sectorFilter && (
+          <div className="flex-shrink-0 flex items-center gap-2 px-4 lg:px-5 h-9 bg-[rgba(180,242,0,0.06)] border-b border-[rgba(180,242,0,0.2)]">
+            <Layers className="w-[12px] h-[12px] text-[#b4f200] flex-shrink-0" strokeWidth={2} />
+            <span className="text-[10px] text-[#b4f200] font-semibold tracking-wider uppercase">Sector</span>
+            <span className="text-[12px] text-[#fafafa] truncate">{sectorFilter}</span>
+            <button onClick={() => setSectorFilter(null)} className="ml-auto flex items-center gap-1 px-2 py-1 border border-[rgba(180,242,0,0.3)] text-[10px] text-[#b4f200] rounded hover:bg-[rgba(180,242,0,0.1)]">
+              <X className="w-[10px] h-[10px]" strokeWidth={2.5} />Clear
+            </button>
+          </div>
+        )}
+
+        {/* MAIN */}
         {view === 'zones' && (
-          <div className="lg:hidden flex items-stretch border-t border-zinc-800 h-8 text-[10px]">
-            <div className="flex-1 flex items-center justify-center gap-1.5 border-r border-zinc-800">
-              <span className="text-zinc-500">BEAR</span><span className="text-red-400 font-bold">{bearish.length}</span>
-            </div>
-            <div className="flex-1 flex items-center justify-center gap-1.5 border-r border-zinc-800">
-              <span className="text-zinc-500">NEU</span><span className="text-amber-400 font-bold">{neutral.length}</span>
-            </div>
-            <div className="flex-1 flex items-center justify-center gap-1.5">
-              <span className="text-zinc-500">BULL</span><span className="text-emerald-400 font-bold">{bullish.length}</span>
-            </div>
-          </div>
-        )}
-
-        {view !== 'sectors' && view !== 'backtest' && (
-          <div className="hidden md:flex items-center gap-3 px-4 h-10 border-t border-zinc-800 bg-zinc-950 overflow-x-auto">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Search className="w-3 h-3 text-zinc-600" />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH TICKER…"
-                className="w-32 bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:border-emerald-500 tracking-wider"/>
-            </div>
-            <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
-              <span className="text-zinc-500 mr-1">MCAP</span>
-              {MC_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setMcBucket(i)}
-                  className={`px-2 py-0.5 border tracking-wider ${mcBucket === i ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-                  {MC_BUCKETS_LONG[i]}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
-              <span className="text-zinc-500">BIAS</span>
-              {BIAS_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setBiasFilter(i)}
-                  className={`px-2 py-0.5 border tracking-wider ${biasFilter === i
-                    ? (i === 1 ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : i === 2 ? 'border-red-500 text-red-400 bg-red-500/5' : 'border-emerald-500 text-emerald-400 bg-emerald-500/5')
-                    : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-                  {b.label}
-                </button>
-              ))}
-              <button onClick={() => setInZoneOnly(z => !z)}
-                className={`px-2 py-0.5 border tracking-wider ${inZoneOnly ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-                IN-ZONE
-              </button>
-            </div>
-            <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
-              <span className="text-zinc-500">EARN</span>
-              {EARN_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setEarnFilter(i)}
-                  className={`px-2 py-0.5 border tracking-wider ${earnFilter === i ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
-              <span className="text-zinc-500">52W</span>
-              {PCT52_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setPct52Filter(i)}
-                  className={`px-2 py-0.5 border tracking-wider ${pct52Filter === i ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-                  {b.label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setWatchOnly(w => !w)}
-              className={`flex items-center gap-1 px-2 py-0.5 border text-[10px] tracking-wider flex-shrink-0 ${watchOnly ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
-              <Star className={`w-3 h-3 ${watchOnly ? 'fill-amber-400' : ''}`} />
-              WATCH<span className="text-zinc-600">({Object.keys(watchlist).length})</span>
-            </button>
-            {hasActiveFilters && (
-              <button onClick={clearFilters} className="text-[10px] text-zinc-500 hover:text-red-400 tracking-wider flex-shrink-0">CLEAR</button>
-            )}
-          </div>
-        )}
-
-        {view !== 'sectors' && view !== 'backtest' && (
-          <div className="md:hidden flex items-center gap-2 px-3 h-10 border-t border-zinc-800 bg-zinc-950">
-            <div className="flex items-center gap-1.5 flex-1 min-w-0">
-              <Search className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH…"
-                className="w-full bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:border-emerald-500 tracking-wider"/>
-            </div>
-            <button onClick={() => setWatchOnly(w => !w)}
-              className={`flex items-center gap-1 px-2 py-1 border text-[10px] no-tap-highlight ${watchOnly ? 'border-amber-500 text-amber-400' : 'border-zinc-800 text-zinc-500'}`}>
-              <Star className={`w-3 h-3 ${watchOnly ? 'fill-amber-400' : ''}`} />
-            </button>
-            <button onClick={() => setMobileFiltersOpen(true)}
-              className={`flex items-center gap-1 px-2 py-1 border text-[10px] tracking-wider no-tap-highlight ${hasActiveFilters ? 'border-emerald-500 text-emerald-400' : 'border-zinc-800 text-zinc-400'}`}>
-              <SlidersHorizontal className="w-3 h-3" />FILTERS
-              {hasActiveFilters && <span className="w-1 h-1 bg-emerald-400" />}
-            </button>
-          </div>
-        )}
-      </header>
-
-      {sectorFilter && (
-        <div className="flex-shrink-0 flex items-center gap-2 px-3 md:px-4 h-8 bg-emerald-500/10 border-b border-emerald-500/40">
-          <Layers className="w-3 h-3 text-emerald-400 flex-shrink-0" />
-          <span className="text-[10px] tracking-[0.3em] font-bold text-emerald-400">SECTOR:</span>
-          <span className="text-[11px] tracking-wider text-emerald-300 truncate">{sectorFilter.toUpperCase()}</span>
-          <button onClick={() => setSectorFilter(null)} className="ml-auto flex items-center gap-1 px-2 py-0.5 border border-emerald-500/40 text-[10px] tracking-wider text-emerald-400 active:bg-emerald-500/20 hover:bg-emerald-500/20 flex-shrink-0">
-            <X className="w-3 h-3" />CLEAR
-          </button>
-        </div>
-      )}
-
-      {view === 'zones' && (
-        <>
-          <div className="hidden lg:flex flex-1 overflow-hidden">
-            <div className="flex-1 grid grid-cols-3 overflow-hidden">
-              <ZoneColumn label="BEARISH" range="[−10 · −2)" accent="red" rows={bearish}
-                sortDir={zoneSort.bearish} onToggleSort={() => toggleZoneSort('bearish')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
-              <ZoneColumn label="NEUTRAL" range="[−2 · +2]" accent="amber" rows={neutral}
-                sortDir={zoneSort.neutral} onToggleSort={() => toggleZoneSort('neutral')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
-              <ZoneColumn label="BULLISH" range="(+2 · +10]" accent="emerald" rows={bullish}
-                sortDir={zoneSort.bullish} onToggleSort={() => toggleZoneSort('bullish')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
-            </div>
-            <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
-              {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
-                notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>}
-            </aside>
-          </div>
-
-          <div className="lg:hidden flex-1 flex flex-col overflow-hidden"
-               onTouchStart={onMobileTouchStart} onTouchEnd={onMobileTouchEnd}>
-            <div className="flex items-stretch border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
-              <MobileZoneTab label="BEARISH" count={bearish.length} active={mobileZone === 'bearish'} accent="red" onClick={() => setMobileZone('bearish')}/>
-              <MobileZoneTab label="NEUTRAL" count={neutral.length} active={mobileZone === 'neutral'} accent="amber" onClick={() => setMobileZone('neutral')}/>
-              <MobileZoneTab label="BULLISH" count={bullish.length} active={mobileZone === 'bullish'} accent="emerald" onClick={() => setMobileZone('bullish')}/>
-            </div>
-            <div className="px-3 h-6 flex items-center justify-between text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
-              <span>← SWIPE TO SWITCH ZONES →</span>
-              <button onClick={() => toggleZoneSort(mobileZone)}
-                className="flex items-center gap-1 px-2 py-0.5 border border-zinc-800 text-zinc-400 no-tap-highlight active:border-emerald-500/50">
-                {zoneSort[mobileZone] === 'asc' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
-                <span className="font-bold">SORT {zoneSort[mobileZone] === 'asc' ? '−→+' : '+→−'}</span>
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden flex flex-col">
-              <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase flex-shrink-0">
-                <span className="w-14">Ticker</span>
-                <span className="w-12 text-right">BX</span>
-                <span className="flex-1 text-right">PX · 52w · Bias</span>
-                <span className="w-12 text-right">Earn·Δ</span>
+          <>
+            <div className="hidden lg:flex flex-1 overflow-hidden">
+              <div className="flex-1 grid grid-cols-3 overflow-hidden">
+                <ZoneColumn label="Bearish" range="−10 · −2" accent="bear" rows={bearish}
+                  sortDir={zoneSort.bearish} onToggleSort={() => toggleZoneSort('bearish')}
+                  selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
+                <ZoneColumn label="Neutral" range="−2 · +2" accent="neu" rows={neutral}
+                  sortDir={zoneSort.neutral} onToggleSort={() => toggleZoneSort('neutral')}
+                  selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
+                <ZoneColumn label="Bullish" range="+2 · +10" accent="bull" rows={bullish}
+                  sortDir={zoneSort.bullish} onToggleSort={() => toggleZoneSort('bullish')}
+                  selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
               </div>
-              <div className="flex-1 overflow-y-auto col-scroll fade-in" key={mobileZone}>
-                {mobileRows.length === 0 ? (
-                  <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
-                ) : mobileRows.map(r => (
-                  <RowItem key={r.t} r={r} zone={mobileZone} selected={false}
-                    onSelect={() => handleSelect(r.t)} watched={!!watchlist[r.t]}
-                    onToggleWatch={() => toggleWatch(r.t)} hasNote={!!notes[r.t]} mobile/>
-                ))}
+              <aside className="w-[500px] flex-shrink-0 border-l border-[rgba(255,255,255,0.06)] flex flex-col bg-[#08090b]">
+                {selected && <DetailPanel ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+                  notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>}
+              </aside>
+            </div>
+
+            <div className="lg:hidden flex-1 flex flex-col overflow-hidden" onTouchStart={onMobileTouchStart} onTouchEnd={onMobileTouchEnd}>
+              <div className="flex items-stretch border-b border-[rgba(255,255,255,0.06)] flex-shrink-0">
+                <MobileZoneTab label="Bearish" count={bearish.length} active={mobileZone === 'bearish'} accent="bear" onClick={() => setMobileZone('bearish')}/>
+                <MobileZoneTab label="Neutral" count={neutral.length} active={mobileZone === 'neutral'} accent="neu" onClick={() => setMobileZone('neutral')}/>
+                <MobileZoneTab label="Bullish" count={bullish.length} active={mobileZone === 'bullish'} accent="bull" onClick={() => setMobileZone('bullish')}/>
+              </div>
+              <div className="px-3 h-7 flex items-center justify-between flex-shrink-0 text-[10px] text-[#52525b]">
+                <span>← swipe to switch →</span>
+                <button onClick={() => toggleZoneSort(mobileZone)} className="flex items-center gap-1 px-2 py-0.5 border border-[rgba(255,255,255,0.06)] rounded-md text-[#a1a1aa]">
+                  {zoneSort[mobileZone] === 'asc' ? <ChevronUp className="w-[11px] h-[11px]"/> : <ChevronDown className="w-[11px] h-[11px]"/>}
+                  <span className="font-mono">{zoneSort[mobileZone] === 'asc' ? '−→+' : '+→−'}</span>
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="row-header-edge">
+                  <span className="w-16">Ticker</span><span className="w-14 text-right">BX</span>
+                  <span className="flex-1 text-right">Px · 52w · Bias</span><span className="w-14 text-right">Sig</span>
+                </div>
+                <div className="flex-1 overflow-y-auto scrollbar-edge fade-in" key={mobileZone}>
+                  {mobileRows.length === 0 ? <EmptyState message="No matches" /> : mobileRows.map(r => (
+                    <RowItem key={r.t} r={r} zone={mobileZone} selected={false}
+                      onSelect={() => handleSelect(r.t)} watched={!!watchlist[r.t]}
+                      onToggleWatch={() => toggleWatch(r.t)} hasNote={!!notes[r.t]} mobile/>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
 
-      {view === 'movers' && (
-        <MoversView movers={sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers}
+        {view === 'movers' && <MoversView movers={sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers}
           meta={scan.meta} selected={selected} onSelect={handleSelect}
           watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}
           tvInterval={tvInterval} setNotes={setNotes} selectedMeta={selectedMeta} selectedRow={selectedRow} timeframe={timeframe}
-          mobileMoverTab={mobileMoverTab} setMobileMoverTab={setMobileMoverTab}/>
-      )}
+          mobileMoverTab={mobileMoverTab} setMobileMoverTab={setMobileMoverTab}/>}
 
-      {view === 'sectors' && <SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/>}
+        {view === 'sectors' && <SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/>}
 
-      {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan}/>}
+        {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan}/>}
+      </div>
 
+      {/* Mobile detail drawer */}
       {mobileDetailOpen && selected && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up">
-          <div className="flex items-center gap-2 px-3 h-10 border-b border-zinc-800 flex-shrink-0 bg-zinc-950">
-            <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-zinc-400 -ml-1 px-1 py-1.5 no-tap-highlight">
-              <ChevronLeft className="w-4 h-4" />
-              <span className="text-[10px] tracking-[0.3em]">BACK</span>
+        <div className="lg:hidden fixed inset-0 z-40 bg-[#08090b] flex flex-col slide-up">
+          <div className="flex items-center gap-2 px-3 h-11 border-b border-[rgba(255,255,255,0.06)] flex-shrink-0 backdrop-blur-xl bg-[rgba(8,9,11,0.8)]">
+            <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-[#a1a1aa] -ml-1 px-2 py-2 rounded hover:bg-[#0f1015]">
+              <ChevronLeft className="w-[16px] h-[16px]" strokeWidth={2} />
+              <span className="text-[12px]">Back</span>
             </button>
             <div className="flex items-center gap-2 ml-auto">
-              <Radio className="w-3 h-3 text-emerald-400 live-dot" />
-              <span className="text-[10px] tracking-[0.3em] text-emerald-400">{tvInterval}</span>
+              <span className="w-1.5 h-1.5 bg-[#b4f200] rounded-full shadow-[0_0_6px_rgba(180,242,0,0.6)] animate-pulse-slow"></span>
+              <span className="text-[10px] tracking-wider text-[#b4f200] font-mono">{tvInterval}</span>
             </div>
           </div>
           <div className="flex-1 overflow-hidden">
-            <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+            <DetailPanel ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
               notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>
           </div>
         </div>
       )}
 
-      {mobileFiltersOpen && (
-        <MobileFiltersDrawer
+      {mobileFiltersOpen && <MobileFiltersDrawer
           mcBucket={mcBucket} setMcBucket={setMcBucket}
           priceMin={priceMin} setPriceMin={setPriceMin}
           priceMax={priceMax} setPriceMax={setPriceMax}
@@ -699,30 +634,247 @@ export default function App() {
           biasFilter={biasFilter} setBiasFilter={setBiasFilter}
           inZoneOnly={inZoneOnly} setInZoneOnly={setInZoneOnly}
           hasActiveFilters={hasActiveFilters} onClear={clearFilters}
-          onClose={() => setMobileFiltersOpen(false)}/>
-      )}
-
-      {showAlerts && (
-        <AlertsDrawer transitions={transitions}
+          onClose={() => setMobileFiltersOpen(false)}/>}
+      {showAlerts && <AlertsDrawer transitions={transitions}
           onClose={() => setShowAlerts(false)}
-          onSelect={(t) => { handleSelect(t); setShowAlerts(false); }}/>
-      )}
+          onSelect={(t) => { handleSelect(t); setShowAlerts(false); }}/>}
     </div>
   );
 }
 
 // ============================================================================
-// VIEWS
+// GLOBAL STYLES — design tokens + custom utility classes
 // ============================================================================
+function GlobalStyles() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap');
+      .font-edge { font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; }
+      .font-edge .tabular-nums, .font-edge .font-mono { font-family: 'Geist Mono', 'SF Mono', Monaco, monospace; font-variant-numeric: tabular-nums; }
+
+      .bg-dot-grid {
+        background-image: radial-gradient(circle, rgba(255,255,255,0.018) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+
+      .brand-logo {
+        width: 28px; height: 28px;
+        background: #b4f200;
+        border-radius: 6px;
+        box-shadow: 0 0 24px rgba(180, 242, 0, 0.25);
+        position: relative;
+        flex-shrink: 0;
+      }
+      .brand-logo::after {
+        content: '';
+        position: absolute; inset: 7px;
+        background: #08090b;
+        clip-path: polygon(0 100%, 30% 100%, 50% 40%, 70% 60%, 100% 0, 100% 100%, 0 100%);
+      }
+
+      @keyframes pulse-slow { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+      .animate-pulse-slow { animation: pulse-slow 2s ease-in-out infinite; }
+
+      @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      .slide-up { animation: slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+      @keyframes slide-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      .slide-right { animation: slide-right 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+      @keyframes fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-in { animation: fade-in 0.16s ease-out; }
+
+      .btn-edge {
+        display: inline-flex; align-items: center; gap: 0; padding: 7px 12px;
+        background: #0f1015; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+        color: #a1a1aa; font-size: 12px; font-weight: 500; cursor: pointer;
+        transition: all 0.15s ease; font-family: inherit;
+      }
+      .btn-edge:hover { border-color: rgba(255,255,255,0.12); color: #fafafa; background: #15171c; }
+      .btn-edge:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-icon-edge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 32px; height: 32px;
+        background: #0f1015; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+        color: #a1a1aa; cursor: pointer; transition: all 0.15s ease;
+      }
+      .btn-icon-edge:hover { border-color: rgba(255,255,255,0.12); color: #b4f200; }
+      .btn-icon-edge:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .tab-edge {
+        padding: 7px 14px; border: none; background: transparent;
+        color: #71717a; font-size: 12px; font-weight: 500; cursor: pointer;
+        border-radius: 6px; transition: all 0.15s ease; font-family: inherit;
+        position: relative;
+      }
+      .tab-edge:hover { color: #a1a1aa; background: #0f1015; }
+      .tab-edge-active { color: #fafafa; background: #0f1015; }
+      .tab-edge-active::after {
+        content: ''; position: absolute; bottom: -1px; left: 12px; right: 12px;
+        height: 2px; background: #b4f200; border-radius: 2px 2px 0 0;
+        box-shadow: 0 0 12px rgba(180,242,0,0.5);
+      }
+
+      .tab-pill-edge {
+        padding: 6px 12px; border: none; background: transparent;
+        color: #71717a; font-size: 11px; font-weight: 500; cursor: pointer;
+        border-radius: 6px; transition: all 0.15s ease; font-family: inherit;
+        display: inline-flex; align-items: center; gap: 6px;
+      }
+      .tab-pill-edge:hover { color: #a1a1aa; background: #0f1015; }
+      .tab-pill-edge-active { color: #b4f200; background: rgba(180,242,0,0.08); }
+
+      .chip-edge {
+        padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 500;
+        background: #0f1015; border: 1px solid rgba(255,255,255,0.06);
+        color: #a1a1aa; cursor: pointer; transition: all 0.15s ease;
+        font-family: inherit; line-height: 1.4;
+      }
+      .chip-edge:hover { border-color: rgba(255,255,255,0.12); color: #fafafa; }
+      .chip-edge-active { color: #b4f200; border-color: #b4f200; background: rgba(180,242,0,0.08); }
+
+      .filter-group-edge { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+      .filter-label-edge { font-size: 10px; color: #52525b; font-weight: 600; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+      .search-edge {
+        background: #0f1015; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px;
+        padding: 6px 10px; color: #fafafa; font-size: 12px;
+        font-family: inherit; outline: none; transition: all 0.15s ease;
+      }
+      .search-edge::placeholder { color: #52525b; }
+      .search-edge:focus { border-color: #b4f200; box-shadow: 0 0 0 3px rgba(180,242,0,0.1); }
+
+      .row-header-edge {
+        display: flex; align-items: center; padding: 8px 16px; flex-shrink: 0;
+        font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
+        border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(8,9,11,0.6); backdrop-filter: blur(8px);
+      }
+
+      .scrollbar-edge::-webkit-scrollbar { width: 6px; }
+      .scrollbar-edge::-webkit-scrollbar-track { background: transparent; }
+      .scrollbar-edge::-webkit-scrollbar-thumb { background: #15171c; border-radius: 3px; }
+      .scrollbar-edge::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+
+      .row-selected {
+        background: #15171c !important;
+        box-shadow: inset 3px 0 0 #b4f200, 0 0 32px rgba(180,242,0,0.06);
+      }
+      .row-selected::before {
+        content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+        width: 3px; background: #b4f200; box-shadow: 0 0 12px rgba(180,242,0,0.5);
+      }
+
+      input::placeholder { color: #52525b; }
+      .no-tap-highlight { -webkit-tap-highlight-color: transparent; }
+    `}</style>
+  );
+}
+
+function EmptyState({ message }) {
+  return <div className="px-3 py-12 text-center text-[11px] text-[#52525b]">— {message} —</div>;
+}
+
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+
+function MobileZoneTab({ label, count, active, accent, onClick }) {
+  const accentColors = {
+    bear: { text: 'text-[#ff3366]', under: 'bg-[#ff3366]', dot: 'bg-[#ff3366] shadow-[0_0_6px_rgba(255,51,102,0.5)]' },
+    neu:  { text: 'text-[#a1a1aa]', under: 'bg-[#a1a1aa]', dot: 'bg-[#a1a1aa]' },
+    bull: { text: 'text-[#00d484]', under: 'bg-[#00d484]', dot: 'bg-[#00d484] shadow-[0_0_6px_rgba(0,212,132,0.5)]' },
+  };
+  const c = accentColors[accent];
+  return (
+    <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-1 h-13 py-2.5 border-r border-[rgba(255,255,255,0.06)] last:border-r-0 no-tap-highlight relative ${active ? 'bg-[#0f1015]' : 'active:bg-[#0f1015]/50'}`}>
+      <div className="flex items-center gap-2">
+        <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></div>
+        <span className={`text-[12px] font-semibold ${active ? c.text : 'text-[#71717a]'}`}>{label}</span>
+      </div>
+      <span className={`text-[13px] font-semibold tabular-nums ${active ? c.text : 'text-[#71717a]'}`}>{count}</span>
+      {active && <div className={`absolute bottom-0 left-3 right-3 h-0.5 rounded-t ${c.under}`}></div>}
+    </button>
+  );
+}
+
+function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes, sortDir, onToggleSort }) {
+  const accentColors = {
+    bear: { dot: 'bg-[#ff3366] shadow-[0_0_8px_rgba(255,51,102,0.4)]', count: 'text-[#ff3366]' },
+    neu:  { dot: 'bg-[#a1a1aa]', count: 'text-[#a1a1aa]' },
+    bull: { dot: 'bg-[#00d484] shadow-[0_0_8px_rgba(0,212,132,0.4)]', count: 'text-[#00d484]' },
+  };
+  const c = accentColors[accent];
+  const SortArrow = sortDir === 'asc' ? ChevronUp : ChevronDown;
+  return (
+    <div className="flex flex-col overflow-hidden border-r border-[rgba(255,255,255,0.06)] last:border-r-0">
+      <div className="flex items-center justify-between px-4 h-12 border-b border-[rgba(255,255,255,0.06)] bg-[#0f1015]">
+        <div className="flex items-center gap-2.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></span>
+          <span className="text-[13px] font-semibold tracking-tight">{label}</span>
+          <span className="text-[10px] text-[#52525b] font-mono">{range}</span>
+        </div>
+        <button onClick={onToggleSort} title={`Sort ${sortDir === 'asc' ? 'asc' : 'desc'}`}
+          className="flex items-center gap-1 px-2 py-1 bg-[#08090b] border border-[rgba(255,255,255,0.06)] rounded-md hover:border-[rgba(255,255,255,0.12)] transition-colors">
+          <SortArrow className="w-[11px] h-[11px]" strokeWidth={2.5} />
+          <span className={`text-[12px] font-semibold tabular-nums ${c.count}`}>{rows.length}</span>
+        </button>
+      </div>
+      <div className="row-header-edge">
+        <span className="w-16">Ticker</span><span className="w-14 text-right">BX</span>
+        <span className="flex-1 text-right">52W · Bias</span><span className="w-14 text-right">Sig</span>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-edge">
+        {rows.length === 0 ? <EmptyState message="no matches" /> : rows.map(r => (
+          <RowItem key={r.t} r={r} zone={r.zone} selected={selected === r.t}
+            onSelect={() => onSelect(r.t)} watched={!!watchlist[r.t]}
+            onToggleWatch={() => onToggleWatch(r.t)} hasNote={!!notes[r.t]}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote, mobile }) {
+  const bxColor = zone === 'bullish' ? 'text-[#00d484]' : zone === 'bearish' ? 'text-[#ff3366]' : 'text-[#a1a1aa]';
+  const transition = r.transition;
+  const tArrow = transition ? (transition.to === 'bullish' ? '↑' : transition.to === 'bearish' ? '↓' : '→') : null;
+  const tColor = transition ? (transition.to === 'bullish' ? 'text-[#00d484] drop-shadow-[0_0_4px_rgba(0,212,132,0.6)]' : transition.to === 'bearish' ? 'text-[#ff3366] drop-shadow-[0_0_4px_rgba(255,51,102,0.6)]' : 'text-[#a1a1aa]') : '';
+
+  return (
+    <div onClick={onSelect} data-ticker={r.t}
+      className={`group flex items-center px-4 ${mobile ? 'h-12' : 'h-10'} border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors no-tap-highlight relative ${
+        selected ? 'row-selected' : 'hover:bg-[#0f1015] active:bg-[#15171c]'
+      }`}>
+      <div className="w-16 flex items-center gap-1.5">
+        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }}
+          className={`${mobile || watched ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 -ml-0.5 no-tap-highlight`}>
+          <Star className={`${mobile ? 'w-[13px] h-[13px]' : 'w-[11px] h-[11px]'} ${watched ? 'fill-[#ffa940] text-[#ffa940]' : 'text-[#52525b]'}`} strokeWidth={2} />
+        </button>
+        <span className="text-[13px] font-semibold tracking-tight">{r.t}</span>
+      </div>
+      <div className="w-14 text-right">
+        <span className={`text-[13px] font-semibold tabular-nums ${bxColor}`}>{r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}</span>
+      </div>
+      <div className="flex-1 text-right text-[10px] flex items-center justify-end gap-2 tabular-nums">
+        <AlignDots score={r.align} />
+        {r.pct52 != null && (
+          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${r.pct52 > 80 ? 'text-[#00d484] bg-[rgba(0,212,132,0.08)]' : r.pct52 < 20 ? 'text-[#ff3366] bg-[rgba(255,51,102,0.08)]' : 'text-[#71717a] bg-[#0f1015]'}`}>{r.pct52.toFixed(0)}%</span>
+        )}
+        <BiasBadge direction={r.biasDir} inZone={r.inZone}/>
+      </div>
+      <div className="w-14 flex items-center justify-end gap-1.5">
+        <EarnBadge daysToEarn={r.daysToEarn} />
+        {hasNote && <StickyNote className="w-[11px] h-[11px] text-[#ffa940]/60" strokeWidth={2} />}
+        {transition && <span className={`text-[14px] font-bold ${tColor}`}>{tArrow}</span>}
+      </div>
+    </div>
+  );
+}
 
 function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe, mobileMoverTab, setMobileMoverTab }) {
   const bullishMoves = movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25);
   const bearishMoves = movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25);
-
-  // Mobile swipe to switch between BULLISH ↔ BEARISH movers
   const touchRef = useRef({ x: 0, y: 0, active: false });
-  const onMobileTouchStart = (e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, active: true }; };
-  const onMobileTouchEnd = (e) => {
+  const onStart = (e) => { const t = e.touches[0]; touchRef.current = { x: t.clientX, y: t.clientY, active: true }; };
+  const onEnd = (e) => {
     if (!touchRef.current.active) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - touchRef.current.x, dy = t.clientY - touchRef.current.y;
@@ -731,51 +883,36 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
     if (dx < 0 && mobileMoverTab === 'bullish') setMobileMoverTab('bearish');
     if (dx > 0 && mobileMoverTab === 'bearish') setMobileMoverTab('bullish');
   };
-
   const mobileRows = mobileMoverTab === 'bullish' ? bullishMoves : bearishMoves;
 
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* DESKTOP: side-by-side columns + detail aside */}
       <div className="hidden lg:flex flex-1 overflow-hidden">
         <div className="flex-1 grid grid-cols-2 overflow-hidden">
-          <MoverColumn label="↑ BULLISH MOVES" accent="emerald" rows={bullishMoves} meta={meta}
-            selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
-          <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
-            selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+          <MoverColumn label="Bullish Moves" accent="bull" rows={bullishMoves} selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+          <MoverColumn label="Bearish Moves" accent="bear" rows={bearishMoves} selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
         </div>
-        <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
-          {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+        <aside className="w-[500px] flex-shrink-0 border-l border-[rgba(255,255,255,0.06)] flex flex-col bg-[#08090b]">
+          {selected && <DetailPanel ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
             notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
         </aside>
       </div>
-
-      {/* MOBILE: ZONES-style tabs + single column + swipe */}
-      <div className="lg:hidden flex-1 flex flex-col overflow-hidden"
-           onTouchStart={onMobileTouchStart} onTouchEnd={onMobileTouchEnd}>
-        <div className="flex items-stretch border-b border-zinc-800 bg-zinc-950 flex-shrink-0">
-          <MobileZoneTab label="↑ BULLISH" count={bullishMoves.length} active={mobileMoverTab === 'bullish'} accent="emerald" onClick={() => setMobileMoverTab('bullish')}/>
-          <MobileZoneTab label="↓ BEARISH" count={bearishMoves.length} active={mobileMoverTab === 'bearish'} accent="red" onClick={() => setMobileMoverTab('bearish')}/>
+      <div className="lg:hidden flex-1 flex flex-col overflow-hidden" onTouchStart={onStart} onTouchEnd={onEnd}>
+        <div className="flex items-stretch border-b border-[rgba(255,255,255,0.06)] flex-shrink-0">
+          <MobileZoneTab label="Bullish Moves" count={bullishMoves.length} active={mobileMoverTab === 'bullish'} accent="bull" onClick={() => setMobileMoverTab('bullish')}/>
+          <MobileZoneTab label="Bearish Moves" count={bearishMoves.length} active={mobileMoverTab === 'bearish'} accent="bear" onClick={() => setMobileMoverTab('bearish')}/>
         </div>
-        <div className="px-3 h-6 flex items-center justify-center text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
-          ← SWIPE TO SWITCH →
-        </div>
+        <div className="px-3 h-6 flex items-center justify-center text-[10px] text-[#52525b] flex-shrink-0">← swipe to switch →</div>
         <div className="flex-1 overflow-hidden flex flex-col">
-          <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase flex-shrink-0">
-            <span className="w-14">Ticker</span>
-            <span className="flex-1 text-right">BX prev → now</span>
-            <span className="w-14 text-right">Δ delta</span>
-            <span className="w-10 text-right">Zone</span>
+          <div className="row-header-edge">
+            <span className="w-16">Ticker</span><span className="flex-1 text-right">BX prev → now</span>
+            <span className="w-14 text-right">Δ</span><span className="w-10 text-right">Zone</span>
           </div>
-          <div className="flex-1 overflow-y-auto col-scroll fade-in" key={mobileMoverTab}>
-            {mobileRows.length === 0 ? (
-              <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
-            ) : mobileRows.map(r => (
+          <div className="flex-1 overflow-y-auto scrollbar-edge fade-in" key={mobileMoverTab}>
+            {mobileRows.length === 0 ? <EmptyState message="no moves"/> : mobileRows.map(r => (
               <MoverRowMobile key={r.ticker} r={r} selected={selected === r.ticker}
-                onSelect={() => onSelect(r.ticker)}
-                watched={!!watchlist[r.ticker]}
-                onToggleWatch={() => onToggleWatch(r.ticker)}
-                hasNote={!!notes[r.ticker]}/>
+                onSelect={() => onSelect(r.ticker)} watched={!!watchlist[r.ticker]}
+                onToggleWatch={() => onToggleWatch(r.ticker)} hasNote={!!notes[r.ticker]}/>
             ))}
           </div>
         </div>
@@ -784,92 +921,80 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
   );
 }
 
-function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote }) {
-  const zone = r.current_zone;
-  const zoneColor = zone === 'bullish' ? 'text-emerald-400' : zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
-  const delta = Number(r.delta_bx);
-  const deltaColor = delta > 0 ? 'text-emerald-400' : 'text-red-400';
-  const prevBx = Number(r.prev_bx);
-  const curBx = Number(r.bx);
-  const transitioned = r.current_zone !== r.previous_zone;
-  const tArrow = transitioned ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
-
+function MoverColumn({ label, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes }) {
+  const accentColors = {
+    bull: { text: 'text-[#00d484]', dot: 'bg-[#00d484] shadow-[0_0_8px_rgba(0,212,132,0.4)]' },
+    bear: { text: 'text-[#ff3366]', dot: 'bg-[#ff3366] shadow-[0_0_8px_rgba(255,51,102,0.4)]' },
+  };
+  const c = accentColors[accent];
   return (
-    <div onClick={onSelect} data-ticker={r.ticker}
-      className={`flex items-center px-3 h-11 border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
-        selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900'
-      }`}>
-      <div className="w-14 flex items-center gap-1">
-        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }} className="p-0.5 -ml-0.5 no-tap-highlight">
-          <Star className={`w-3 h-3 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
-        </button>
-        <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.ticker}</span>
+    <div className="flex flex-col overflow-hidden border-r border-[rgba(255,255,255,0.06)] last:border-r-0">
+      <div className="flex items-center justify-between px-4 h-12 border-b border-[rgba(255,255,255,0.06)] bg-[#0f1015]">
+        <div className="flex items-center gap-2.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`}></span>
+          <span className="text-[13px] font-semibold tracking-tight">{label}</span>
+        </div>
+        <span className={`text-[12px] font-semibold tabular-nums ${c.text}`}>{rows.length}</span>
       </div>
-      <div className="flex-1 text-right text-[10px] tabular-nums pr-2">
-        <span className={zoneColor}>
-          {prevBx >= 0 ? '+' : ''}{prevBx.toFixed(1)}→<span className="font-bold">{curBx >= 0 ? '+' : ''}{curBx.toFixed(1)}</span>
-        </span>
+      <div className="row-header-edge">
+        <span className="w-16">Ticker</span><span className="w-20 text-right">BX→</span>
+        <span className="flex-1 text-right">Δ delta</span><span className="w-16 text-right">Zone</span>
       </div>
-      <div className="w-14 text-right">
-        <span className={`text-[12px] font-bold tabular-nums ${deltaColor}`}>
-          {delta >= 0 ? '+' : ''}{delta.toFixed(2)}
-        </span>
-      </div>
-      <div className="w-10 flex items-center justify-end gap-1 pl-1">
-        {hasNote && <StickyNote className="w-2.5 h-2.5 text-amber-400/60 flex-shrink-0" />}
-        <span className="text-[9px] font-bold tracking-wider">
-          {tArrow ? <span className={zoneColor}>{tArrow}</span> : <span className={`${zoneColor} opacity-50 uppercase`}>{zone[0]}</span>}
-        </span>
+      <div className="flex-1 overflow-y-auto scrollbar-edge">
+        {rows.length === 0 ? <EmptyState message="no moves"/> : rows.map(r => {
+          const isSelected = selected === r.ticker;
+          const tArrow = r.current_zone !== r.previous_zone ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
+          return (
+            <div key={r.ticker} onClick={() => onSelect(r.ticker)} data-ticker={r.ticker}
+              className={`group flex items-center px-4 h-10 border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors no-tap-highlight relative ${
+                isSelected ? 'row-selected' : 'hover:bg-[#0f1015]'
+              }`}>
+              <div className="w-16 flex items-center gap-1.5">
+                <button onClick={(e) => { e.stopPropagation(); onToggleWatch(r.ticker); }}
+                  className={`${watchlist[r.ticker] ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5`}>
+                  <Star className={`w-[11px] h-[11px] ${watchlist[r.ticker] ? 'fill-[#ffa940] text-[#ffa940]' : 'text-[#52525b]'}`} strokeWidth={2} />
+                </button>
+                <span className="text-[13px] font-semibold tracking-tight">{r.ticker}</span>
+              </div>
+              <span className={`w-20 text-right text-[11px] tabular-nums ${c.text}`}>
+                {r.prev_bx >= 0 ? '+' : ''}{Number(r.prev_bx).toFixed(1)}→<span className="font-semibold">{r.bx >= 0 ? '+' : ''}{Number(r.bx).toFixed(1)}</span>
+              </span>
+              <span className={`flex-1 text-right text-[13px] font-semibold tabular-nums ${c.text}`}>{Number(r.delta_bx) >= 0 ? '+' : ''}{Number(r.delta_bx).toFixed(2)}</span>
+              <span className="w-16 text-right text-[10px] font-medium">
+                {tArrow ? <span className={c.text}>{tArrow}</span> : <span className="text-[#52525b] uppercase">{r.current_zone}</span>}
+              </span>
+              {notes[r.ticker] && <StickyNote className="w-[10px] h-[10px] text-[#ffa940]/60 ml-1" strokeWidth={2} />}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist, onToggleWatch, notes }) {
-  const c = accent === 'emerald' ? { text: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' }
-                                  : { text: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/5' };
+function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote }) {
+  const zone = r.current_zone;
+  const zoneColor = zone === 'bullish' ? 'text-[#00d484]' : zone === 'bearish' ? 'text-[#ff3366]' : 'text-[#a1a1aa]';
+  const delta = Number(r.delta_bx);
+  const deltaColor = delta > 0 ? 'text-[#00d484]' : 'text-[#ff3366]';
+  const transitioned = r.current_zone !== r.previous_zone;
+  const tArrow = transitioned ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
   return (
-    <div className="flex flex-col overflow-hidden border-r border-zinc-800 last:border-r-0">
-      <div className={`flex items-center justify-between px-3 h-10 border-b ${c.border} ${c.bg}`}>
-        <span className={`text-[11px] font-bold tracking-[0.3em] ${c.text}`}>{label}</span>
-        <span className={`text-[11px] font-bold ${c.text}`}>{rows.length}</span>
+    <div onClick={onSelect} data-ticker={r.ticker}
+      className={`flex items-center px-4 h-12 border-b border-[rgba(255,255,255,0.03)] cursor-pointer transition-colors no-tap-highlight relative ${
+        selected ? 'row-selected' : 'active:bg-[#0f1015]'
+      }`}>
+      <div className="w-16 flex items-center gap-1.5">
+        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }} className="p-0.5">
+          <Star className={`w-[13px] h-[13px] ${watched ? 'fill-[#ffa940] text-[#ffa940]' : 'text-[#52525b]'}`} strokeWidth={2} />
+        </button>
+        <span className="text-[13px] font-semibold tracking-tight">{r.ticker}</span>
       </div>
-      <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase">
-        <span className="w-14">Ticker</span><span className="w-14 text-right">BX→</span>
-        <span className="flex-1 text-right">Δ delta</span><span className="w-16 text-right">Zone</span>
-      </div>
-      <div className="flex-1 overflow-y-auto col-scroll">
-        {rows.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
-        ) : rows.map(r => {
-          const isSelected = selected === r.ticker;
-          const tArrow = r.current_zone !== r.previous_zone
-            ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
-          return (
-            <div key={r.ticker} onClick={() => onSelect(r.ticker)} data-ticker={r.ticker}
-              className={`group flex items-center px-3 h-9 border-b border-zinc-900 cursor-pointer no-tap-highlight ${
-                isSelected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900 md:hover:bg-zinc-900/50'
-              }`}>
-              <div className="w-14 flex items-center gap-1">
-                <button onClick={(e) => { e.stopPropagation(); onToggleWatch(r.ticker); }}
-                  className={`${watchlist[r.ticker] ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5`}>
-                  <Star className={`w-2.5 h-2.5 ${watchlist[r.ticker] ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
-                </button>
-                <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.ticker}</span>
-              </div>
-              <span className={`w-14 text-right text-[10px] tabular-nums ${c.text}`}>
-                {r.prev_bx >= 0 ? '+' : ''}{Number(r.prev_bx).toFixed(1)}→<span className="font-bold">{r.bx >= 0 ? '+' : ''}{Number(r.bx).toFixed(1)}</span>
-              </span>
-              <span className={`flex-1 text-right text-[11px] font-bold tabular-nums ${c.text}`}>
-                {Number(r.delta_bx) >= 0 ? '+' : ''}{Number(r.delta_bx).toFixed(2)}
-              </span>
-              <span className="w-16 text-right text-[9px] tracking-wider">
-                {tArrow ? <span className={c.text}>{tArrow}</span> : <span className="text-zinc-600 uppercase">{r.current_zone}</span>}
-              </span>
-              {notes[r.ticker] && <StickyNote className="w-2.5 h-2.5 text-amber-400/60 ml-1" />}
-            </div>
-          );
-        })}
+      <div className="flex-1 text-right text-[11px] tabular-nums pr-2"><span className={zoneColor}>{Number(r.prev_bx) >= 0 ? '+' : ''}{Number(r.prev_bx).toFixed(1)}→<span className="font-semibold">{Number(r.bx) >= 0 ? '+' : ''}{Number(r.bx).toFixed(1)}</span></span></div>
+      <div className="w-14 text-right"><span className={`text-[13px] font-semibold tabular-nums ${deltaColor}`}>{delta >= 0 ? '+' : ''}{delta.toFixed(2)}</span></div>
+      <div className="w-10 flex items-center justify-end gap-1 pl-1">
+        {hasNote && <StickyNote className="w-[10px] h-[10px] text-[#ffa940]/60" strokeWidth={2} />}
+        <span className="text-[10px] font-medium">{tArrow ? <span className={zoneColor}>{tArrow}</span> : <span className={`${zoneColor} opacity-50 uppercase`}>{zone[0]}</span>}</span>
       </div>
     </div>
   );
@@ -879,44 +1004,39 @@ function SectorsView({ sectors, timeframe, activeSector, onSelectSector }) {
   const sorted = [...sectors].sort((a, b) => Number(b.avg_bx) - Number(a.avg_bx));
   const maxAbs = Math.max(...sorted.map(s => Math.abs(Number(s.avg_bx))), 1);
   return (
-    <div className="flex-1 overflow-y-auto col-scroll bg-zinc-950">
-      <div className="max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6">
-        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
-          <Layers className="w-4 h-4 text-emerald-400" />
-          <h2 className="text-[12px] tracking-[0.3em] font-bold text-emerald-400">SECTOR PULSE · {SCAN_META[timeframe].label}</h2>
-          <span className="text-[10px] text-zinc-500">click any sector to drill into its tickers</span>
+    <div className="flex-1 overflow-y-auto scrollbar-edge">
+      <div className="max-w-5xl mx-auto px-5 py-6">
+        <div className="flex items-baseline gap-3 mb-5 flex-wrap">
+          <Layers className="w-[16px] h-[16px] text-[#b4f200]" strokeWidth={2} />
+          <h2 className="text-[15px] font-semibold tracking-tight">Sector Pulse · {SCAN_META[timeframe].label}</h2>
+          <span className="text-[11px] text-[#52525b]">click any sector to filter tickers</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {sorted.map(s => {
             const avg = Number(s.avg_bx);
-            const positive = avg > 0;
-            const color = avg > 2 ? 'emerald' : avg < -2 ? 'red' : 'amber';
-            const c = color === 'emerald' ? { text: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500/40' }
-                    : color === 'red'     ? { text: 'text-red-400',     bg: 'bg-red-500',     border: 'border-red-500/40' }
-                    : { text: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500/40' };
-            const widthPct = (Math.abs(avg) / maxAbs) * 100;
             const isActive = activeSector === s.sector;
+            const accent = avg > 2 ? '#00d484' : avg < -2 ? '#ff3366' : '#a1a1aa';
+            const widthPct = (Math.abs(avg) / maxAbs) * 100;
             return (
               <button key={s.sector} onClick={() => onSelectSector && onSelectSector(s.sector)}
-                className={`text-left border ${isActive ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_0_1px_rgb(52,211,153)]' : `${c.border} bg-zinc-900/30 hover:bg-zinc-900/60 hover:border-zinc-600`} p-3 transition-colors no-tap-highlight`}>
-                <div className="flex items-baseline justify-between mb-1.5 gap-2">
+                className={`text-left rounded-md p-4 transition-all no-tap-highlight ${isActive ? 'bg-[rgba(180,242,0,0.06)] border border-[#b4f200] shadow-[0_0_24px_rgba(180,242,0,0.15)]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.16)]'}`}>
+                <div className="flex items-baseline justify-between mb-2 gap-2">
                   <div className="flex items-baseline gap-2 min-w-0">
-                    <span className="text-[11px] tracking-[0.2em] font-bold text-zinc-100">{s.sector.toUpperCase()}</span>
-                    {isActive && <span className="text-[8px] tracking-[0.25em] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5">ACTIVE</span>}
+                    <span className="text-[13px] font-semibold tracking-tight truncate">{s.sector}</span>
+                    {isActive && <span className="text-[9px] font-bold tracking-wider text-[#b4f200] uppercase">Active</span>}
                   </div>
-                  <span className={`text-[14px] font-bold tabular-nums ${c.text}`}>{positive ? '+' : ''}{avg.toFixed(2)}</span>
+                  <span className="text-[18px] font-semibold tabular-nums" style={{ color: accent }}>{avg >= 0 ? '+' : ''}{avg.toFixed(2)}</span>
                 </div>
-                <div className="h-1 bg-zinc-800 relative overflow-hidden mb-2">
-                  <div className={`absolute top-0 bottom-0 ${c.bg}`}
-                    style={positive ? { left: '50%', width: `${widthPct/2}%` } : { right: '50%', width: `${widthPct/2}%` }} />
-                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-zinc-600" />
+                <div className="h-1 bg-[#15171c] rounded-full relative overflow-hidden mb-2.5">
+                  <div className="absolute top-0 bottom-0 rounded-full" style={{ background: accent, ...(avg >= 0 ? { left: '50%', width: `${widthPct/2}%` } : { right: '50%', width: `${widthPct/2}%` }) }} />
+                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-[rgba(255,255,255,0.08)]" />
                 </div>
-                <div className="flex items-center gap-3 text-[9px] text-zinc-500 tracking-wider">
+                <div className="flex items-center gap-3 text-[10px] text-[#52525b]">
                   <span>{s.ticker_count} tickers</span>
-                  <span className="text-emerald-500">{s.bullish_count} bull</span>
-                  <span className="text-amber-500">{s.neutral_count} neu</span>
-                  <span className="text-red-500">{s.bearish_count} bear</span>
-                  <span className="ml-auto">{s.pct_bullish}% bullish</span>
+                  <span className="text-[#00d484]">{s.bullish_count} bull</span>
+                  <span className="text-[#a1a1aa]">{s.neutral_count} neu</span>
+                  <span className="text-[#ff3366]">{s.bearish_count} bear</span>
+                  <span className="ml-auto">{s.pct_bullish}% bull</span>
                 </div>
               </button>
             );
@@ -928,179 +1048,82 @@ function SectorsView({ sectors, timeframe, activeSector, onSelectSector }) {
 }
 
 function BacktestView({ summary, timeframe, scan }) {
-  // Filter to most useful signal types (zone transitions involving entries/exits)
   const PRIORITY = [
-    { key: 'neutral_to_bullish',  label: 'NEUTRAL → BULLISH', desc: 'Bullish breakout (long entry)',  color: 'emerald' },
-    { key: 'bearish_to_neutral',  label: 'BEARISH → NEUTRAL', desc: 'Selling pressure easing',         color: 'amber' },
-    { key: 'neutral_to_bearish',  label: 'NEUTRAL → BEARISH', desc: 'Bearish breakdown (long exit)',  color: 'red' },
-    { key: 'bullish_to_neutral',  label: 'BULLISH → NEUTRAL', desc: 'Bullish momentum fading',         color: 'amber' },
-    { key: 'bullish_to_bearish',  label: 'BULLISH → BEARISH', desc: 'Sharp reversal down',             color: 'red' },
-    { key: 'bearish_to_bullish',  label: 'BEARISH → BULLISH', desc: 'Sharp reversal up',               color: 'emerald' },
+    { key: 'neutral_to_bullish',  label: 'Neutral → Bullish',  desc: 'Bullish breakout (long entry)',   accent: 'bull' },
+    { key: 'bearish_to_neutral',  label: 'Bearish → Neutral',  desc: 'Selling pressure easing',         accent: 'neu' },
+    { key: 'neutral_to_bearish',  label: 'Neutral → Bearish',  desc: 'Bearish breakdown (long exit)',   accent: 'bear' },
+    { key: 'bullish_to_neutral',  label: 'Bullish → Neutral',  desc: 'Bullish momentum fading',         accent: 'neu' },
+    { key: 'bullish_to_bearish',  label: 'Bullish → Bearish',  desc: 'Sharp reversal down',             accent: 'bear' },
+    { key: 'bearish_to_bullish',  label: 'Bearish → Bullish',  desc: 'Sharp reversal up',               accent: 'bull' },
   ];
   const rows = PRIORITY.map(p => ({ ...p, data: summary.find(s => s.signal_type === p.key) || null }));
+  const accentMap = {
+    bull: { text: 'text-[#00d484]', border: 'border-[rgba(0,212,132,0.25)]', bg: 'bg-[rgba(0,212,132,0.04)]' },
+    bear: { text: 'text-[#ff3366]', border: 'border-[rgba(255,51,102,0.25)]', bg: 'bg-[rgba(255,51,102,0.04)]' },
+    neu:  { text: 'text-[#a1a1aa]', border: 'border-[rgba(161,161,170,0.15)]', bg: 'bg-[#0f1015]' },
+  };
   return (
-    <div className="flex-1 overflow-y-auto col-scroll bg-zinc-950">
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 md:py-6">
-        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
-          <History className="w-4 h-4 text-emerald-400" />
-          <h2 className="text-[12px] tracking-[0.3em] font-bold text-emerald-400">SIGNAL BACKTEST · {SCAN_META[timeframe].label}</h2>
-          <span className="text-[10px] text-zinc-500">historical performance of BX zone-transition signals across all {scan.data.length} tickers</span>
+    <div className="flex-1 overflow-y-auto scrollbar-edge">
+      <div className="max-w-5xl mx-auto px-5 py-6">
+        <div className="flex items-baseline gap-3 mb-5 flex-wrap">
+          <History className="w-[16px] h-[16px] text-[#b4f200]" strokeWidth={2} />
+          <h2 className="text-[15px] font-semibold tracking-tight">Signal Backtest · {SCAN_META[timeframe].label}</h2>
+          <span className="text-[11px] text-[#52525b]">historical performance across {scan.data.length} tickers</span>
         </div>
-
         <div className="space-y-3">
-          {rows.map(({ key, label, desc, color, data }) => {
-            const c = color === 'emerald' ? { text: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/5' }
-                    : color === 'red'     ? { text: 'text-red-400',     border: 'border-red-500/40',     bg: 'bg-red-500/5' }
-                    : { text: 'text-amber-400', border: 'border-amber-500/40', bg: 'bg-amber-500/5' };
+          {rows.map(({ key, label, desc, accent, data }) => {
+            const c = accentMap[accent];
             return (
-              <div key={key} className={`border ${c.border} ${c.bg} p-4`}>
+              <div key={key} className={`border ${c.border} ${c.bg} rounded-md p-4`}>
                 <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
                   <div>
-                    <div className={`text-[12px] font-bold tracking-[0.2em] ${c.text}`}>{label}</div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">{desc}</div>
+                    <div className={`text-[14px] font-semibold tracking-tight ${c.text}`}>{label}</div>
+                    <div className="text-[11px] text-[#52525b] mt-0.5">{desc}</div>
                   </div>
-                  {data ? (
-                    <div className="text-[10px] text-zinc-500 tracking-wider">N={data.n_signals} historical signals</div>
-                  ) : (
-                    <div className="text-[10px] text-zinc-700 tracking-wider">no data yet</div>
-                  )}
+                  {data ? <div className="text-[11px] text-[#52525b]">N={data.n_signals} signals</div> : <div className="text-[11px] text-[#52525b]">no data</div>}
                 </div>
                 {data && (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px]">
-                    <Stat label="AVG 5D"      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 20D"     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 60D"     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 120D"    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="WIN 60D"     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                    <BTStat label="Avg 5d" val={data.avg_5d}/>
+                    <BTStat label="Avg 20d" val={data.avg_20d}/>
+                    <BTStat label="Avg 60d" val={data.avg_60d}/>
+                    <BTStat label="Avg 120d" val={data.avg_120d}/>
+                    <BTStat label="Win 60d" val={data.win_rate_60d_pct} isPct/>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
-
-        <div className="mt-6 px-4 py-3 border border-zinc-800 bg-zinc-900/30 text-[10px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-400">How to read this:</span> Each row shows what happened on average AFTER that signal type fired historically (past 2 years).
-          For example, "NEUTRAL → BULLISH" returns ~X% on average after 60 days means: when BX crossed above +2 across all tickers, the median stock gained X% over the next 60 trading days.
-          <span className="text-zinc-400"> Win rate 60D</span> = % of those signals that ended in profit at 60 days.
-          Use this to gauge the edge: a 65% win rate beats 50% (random).
+        <div className="mt-6 px-4 py-3 border border-[rgba(255,255,255,0.06)] bg-[#0f1015] rounded-md text-[11px] text-[#71717a] leading-relaxed">
+          <span className="text-[#a1a1aa] font-medium">How to read this:</span> Each row shows what happened on average AFTER that signal type fired historically. Win rate 60d = % of those signals that ended in profit at 60 days. A 65% win rate beats 50% (random) by a meaningful margin.
         </div>
       </div>
     </div>
   );
 }
 
-// ============================================================================
-// COLUMNS
-// ============================================================================
-
-function MobileZoneTab({ label, count, active, accent, onClick }) {
-  const colors = {
-    red:     { text: active ? 'text-red-400' : 'text-zinc-500',     border: 'border-b-red-400',     dot: 'bg-red-500' },
-    amber:   { text: active ? 'text-amber-400' : 'text-zinc-500',   border: 'border-b-amber-400',   dot: 'bg-amber-500' },
-    emerald: { text: active ? 'text-emerald-400' : 'text-zinc-500', border: 'border-b-emerald-400', dot: 'bg-emerald-500' },
-  };
-  const c = colors[accent];
+function BTStat({ label, val, isPct }) {
+  const num = Number(val);
+  const color = isPct ? (num > 55 ? 'text-[#00d484]' : num < 45 ? 'text-[#ff3366]' : 'text-[#a1a1aa]') : (num > 0 ? 'text-[#00d484]' : num < 0 ? 'text-[#ff3366]' : 'text-[#71717a]');
   return (
-    <button onClick={onClick} className={`flex-1 flex flex-col items-center justify-center gap-0.5 h-12 border-r border-zinc-800 last:border-r-0 no-tap-highlight ${
-      active ? `bg-zinc-900 border-b-2 ${c.border}` : 'active:bg-zinc-900/50'
-    }`}>
-      <div className="flex items-center gap-1.5">
-        <div className={`w-1.5 h-1.5 ${c.dot}`} />
-        <span className={`text-[10px] font-bold tracking-[0.25em] ${c.text}`}>{label}</span>
-      </div>
-      <span className={`text-[11px] font-bold ${c.text}`}>{count}</span>
-    </button>
-  );
-}
-
-function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes, sortDir, onToggleSort }) {
-  const accentMap = {
-    red:     { text: 'text-red-400',     bg: 'bg-red-500/5',     border: 'border-red-500/30',     dot: 'bg-red-500',     hoverBorder: 'hover:border-red-500/60',     hoverBg: 'hover:bg-red-500/10' },
-    amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/5',   border: 'border-amber-500/30',   dot: 'bg-amber-500',   hoverBorder: 'hover:border-amber-500/60',   hoverBg: 'hover:bg-amber-500/10' },
-    emerald: { text: 'text-emerald-400', bg: 'bg-emerald-500/5', border: 'border-emerald-500/30', dot: 'bg-emerald-500', hoverBorder: 'hover:border-emerald-500/60', hoverBg: 'hover:bg-emerald-500/10' },
-  };
-  const c = accentMap[accent];
-  const SortArrow = sortDir === 'asc' ? ChevronUp : ChevronDown;
-  return (
-    <div className="flex flex-col overflow-hidden border-r border-zinc-800 last:border-r-0">
-      <div className={`flex items-center justify-between px-3 h-10 border-b ${c.border} ${c.bg}`}>
-        <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 ${c.dot}`} />
-          <span className={`text-[11px] font-bold tracking-[0.3em] ${c.text}`}>{label}</span>
-          <span className="text-[9px] text-zinc-500 tracking-wider">{range}</span>
-        </div>
-        <button onClick={onToggleSort}
-          title={`Sort by BX ${sortDir === 'asc' ? 'ascending (negative → positive)' : 'descending (positive → negative)'} — click to flip`}
-          className={`flex items-center gap-1 px-2 py-0.5 border ${c.border} bg-zinc-950/40 ${c.hoverBg} ${c.hoverBorder} transition-colors no-tap-highlight`}>
-          <SortArrow className={`w-3 h-3 ${c.text}`} />
-          <span className={`text-[11px] font-bold ${c.text}`}>{rows.length}</span>
-        </button>
-      </div>
-      <div className="flex items-center px-3 h-6 border-b border-zinc-900 bg-zinc-950/50 text-[9px] text-zinc-600 tracking-wider uppercase">
-        <span className="w-14">Ticker</span><span className="w-12 text-right">BX</span>
-        <span className="flex-1 text-right">PX · 52w · Bias</span><span className="w-14 text-right">Earn·Δ</span>
-      </div>
-      <div className="flex-1 overflow-y-auto col-scroll">
-        {rows.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
-        ) : rows.map(r => (
-          <RowItem key={r.t} r={r} zone={r.zone} selected={selected === r.t}
-            onSelect={() => onSelect(r.t)} watched={!!watchlist[r.t]}
-            onToggleWatch={() => onToggleWatch(r.t)} hasNote={!!notes[r.t]}/>
-        ))}
-      </div>
+    <div className="p-2 bg-[#08090b] rounded">
+      <div className="text-[9px] text-[#52525b] uppercase tracking-wider font-semibold">{label}</div>
+      <div className={`text-[13px] font-semibold tabular-nums mt-0.5 ${color}`}>{val == null ? '—' : `${num >= 0 && !isPct ? '+' : ''}${num.toFixed(2)}${isPct ? '%' : '%'}`}</div>
     </div>
   );
 }
 
-function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote, mobile }) {
-  const c = zone === 'bullish' ? { text: 'text-emerald-400' } : zone === 'bearish' ? { text: 'text-red-400' } : { text: 'text-amber-400' };
-  const extreme = Math.abs(r.bx) > 10;
-  const tArrow = r.transition ? (r.transition.to === 'bullish' ? '↑' : r.transition.to === 'bearish' ? '↓' : '→') : null;
+function Stat({ label, value, valueClass = 'text-[#fafafa]' }) {
   return (
-    <div onClick={onSelect} data-ticker={r.t}
-      className={`group flex items-center px-3 ${mobile ? 'h-11' : 'h-9'} border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
-        selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900 md:hover:bg-zinc-900/50'
-      }`}>
-      <div className="w-14 flex items-center gap-1">
-        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }}
-          className={`${mobile || watched ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 -ml-0.5`}>
-          <Star className={`${mobile ? 'w-3 h-3' : 'w-2.5 h-2.5'} ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
-        </button>
-        <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.t}</span>
-      </div>
-      <div className="w-12 flex items-center justify-end">
-        <span className={`text-[11px] font-bold ${c.text} ${extreme ? 'underline decoration-dotted underline-offset-2' : ''}`}>
-          {r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}
-        </span>
-      </div>
-      <div className="flex-1 text-right text-[9px] tabular-nums flex items-center justify-end gap-1.5">
-        <AlignDots score={r.align} />
-        <span className="text-zinc-500">${r.px ? r.px.toFixed(2) : '—'}</span>
-        {r.pct52 != null && (
-          <span className={`text-[8px] ${r.pct52 > 80 ? 'text-emerald-500' : r.pct52 < 20 ? 'text-red-500' : 'text-zinc-600'}`}>{r.pct52.toFixed(0)}%</span>
-        )}
-        <BiasBadge direction={r.biasDir} inZone={r.inZone} compact={!mobile}/>
-      </div>
-      <div className="w-14 flex items-center justify-end gap-1">
-        <EarnBadge daysToEarn={r.daysToEarn} mobile={mobile} />
-        {hasNote && <StickyNote className="w-2.5 h-2.5 text-amber-400/60" />}
-        {r.transition && (
-          <span className={`text-[11px] font-bold ${r.transition.to === 'bullish' ? 'text-emerald-400' : r.transition.to === 'bearish' ? 'text-red-400' : 'text-amber-400'}`}>
-            {tArrow}
-          </span>
-        )}
-      </div>
+    <div className="px-4 py-3 border-r border-[rgba(255,255,255,0.06)] last:border-r-0">
+      <div className="text-[10px] text-[#52525b] uppercase tracking-wider font-semibold">{label}</div>
+      <div className={`text-[15px] font-semibold tabular-nums mt-1 tracking-tight ${valueClass}`}>{value}</div>
     </div>
   );
 }
 
-// ============================================================================
-// DETAIL PANEL
-// ============================================================================
-
-function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, watchlist, onToggleWatch, compact = false }) {
+function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, watchlist, onToggleWatch }) {
   const noteVal = notes[ticker] || '';
   const setNote = (v) => setNotes(n => ({ ...n, [ticker]: v }));
   const watched = !!watchlist[ticker];
@@ -1108,41 +1131,24 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const [aiCopied, setAiCopied] = useState(false);
   const [aiError,  setAiError]  = useState(false);
 
-  // Robust clipboard copy: modern API → fallback to hidden textarea → flag error
+  useEffect(() => {
+    if (!ticker) return;
+    fetchBacktestForTicker(ticker, timeframe).then(setTickerBacktest).catch(() => setTickerBacktest([]));
+  }, [ticker, timeframe]);
+
   const copyToClipboard = async (text) => {
+    try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true; } } catch (e) {}
     try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-    } catch (e) { /* fall through to fallback */ }
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
+      const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0'; ta.style.left='-9999px';
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
     } catch (e) { return false; }
   };
 
-  useEffect(() => {
-    if (!ticker || !compact) return;
-    fetchBacktestForTicker(ticker, timeframe).then(setTickerBacktest).catch(() => setTickerBacktest([]));
-  }, [ticker, timeframe, compact]);
-
-  const bx = row?.bx;
-  const prev = row?.prev;
-  const zone = row?.zone;
-  const zoneColor = zone === 'bullish' ? 'text-emerald-400' : zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
+  const bx = row?.bx; const prev = row?.prev; const zone = row?.zone;
+  const zoneColor = zone === 'bullish' ? 'text-[#00d484]' : zone === 'bearish' ? 'text-[#ff3366]' : 'text-[#a1a1aa]';
   const align = meta.align;
   const earnLvl = earnLevel(meta.daysToEarn);
 
-  // AI brief prompt builder — copies to clipboard
   const generateAIPrompt = () => {
     const lines = [
       `You are a LEAPS options trading assistant. The trader uses BX-Trender + Market Bias to find setups.`,
@@ -1152,7 +1158,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       `Exchange: ${meta.ex || '—'} · Sector: ${meta.sec || '—'} · Industry: ${meta.ind || '—'}`,
       `Price: $${meta.px ? meta.px.toFixed(2) : '—'}  ·  Market cap: ${meta.mc ? (meta.mc >= 1000 ? `$${(meta.mc/1000).toFixed(2)}T` : `$${meta.mc.toFixed(1)}B`) : '—'}`,
       ``,
-      `BX-TRENDER (current timeframe = ${SCAN_META[timeframe].label}):`,
+      `BX-TRENDER (${SCAN_META[timeframe].label}):`,
       `  Current: ${bx != null ? bx.toFixed(2) : '—'} (zone: ${zone || '—'})`,
       `  Previous: ${prev != null ? prev.toFixed(2) : '—'}`,
       row?.transition && `  Just transitioned: ${row.transition.from} → ${row.transition.to}`,
@@ -1161,396 +1167,304 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       `  Daily BX: ${meta.daily != null ? meta.daily.toFixed(2) : '—'}`,
       `  Weekly BX: ${meta.weekly != null ? meta.weekly.toFixed(2) : '—'}`,
       `  Monthly BX: ${meta.monthly != null ? meta.monthly.toFixed(2) : '—'}`,
-      `  Alignment score: ${align != null ? `${align}/3 (${align > 0 ? 'all leaning bullish' : align < 0 ? 'all leaning bearish' : 'mixed'})` : '—'}`,
+      `  Alignment score: ${align != null ? `${align}/3` : '—'}`,
       `  Composite BX: ${meta.composite != null ? meta.composite.toFixed(2) : '—'}`,
       ``,
       `MARKET BIAS (${SCAN_META[timeframe].label}):`,
       `  Direction: ${meta.biasDir || '—'}`,
       `  In zone (price testing bias): ${meta.inZone ? 'YES — at potential support/resistance' : 'NO — outside the zone'}`,
       ``,
-      `52-WEEK RANGE:`,
-      `  Position: ${meta.pct52 != null ? `${meta.pct52.toFixed(0)}% of range` : '—'}`,
-      `  High: $${meta.hi52 ? meta.hi52.toFixed(2) : '—'}  ·  Low: $${meta.lo52 ? meta.lo52.toFixed(2) : '—'}`,
-      ``,
-      `EARNINGS: ${meta.earn ? `${meta.earn} (${meta.daysToEarn}d out)` : 'no upcoming earnings in next 90d'}`,
+      `52-WEEK: ${meta.pct52 != null ? `${meta.pct52.toFixed(0)}% of range` : '—'} (H $${meta.hi52?.toFixed(2) || '—'}, L $${meta.lo52?.toFixed(2) || '—'})`,
+      `EARNINGS: ${meta.earn ? `${meta.earn} (${meta.daysToEarn}d out)` : 'none in next 90d'}`,
     ].filter(Boolean).join('\n');
     copyToClipboard(lines).then(ok => {
-      if (ok) {
-        setAiCopied(true);
-        setAiError(false);
-        setTimeout(() => setAiCopied(false), 2000);
-      } else {
-        setAiError(true);
-        setTimeout(() => setAiError(false), 3000);
-      }
+      if (ok) { setAiCopied(true); setAiError(false); setTimeout(() => setAiCopied(false), 2000); }
+      else { setAiError(true); setTimeout(() => setAiError(false), 3000); }
     });
   };
 
-  const renderHeader = () => (
-    <div className="px-4 h-14 border-b border-zinc-800 flex items-center justify-between flex-shrink-0">
-      <div className="flex items-center gap-3 min-w-0">
-        <span className="text-xl font-bold tracking-[0.15em] text-zinc-100">{ticker}</span>
-        <div className="flex flex-col text-[9px] text-zinc-500 tracking-wider min-w-0">
-          <span className="truncate">{meta.ex || '—'} · {meta.sec || '—'}</span>
-          <span className="truncate text-zinc-600">{meta.ind || ''}</span>
-        </div>
-      </div>
-      <div className="flex items-center gap-1.5 flex-shrink-0">
-        <button onClick={generateAIPrompt}
-          className={`p-1.5 border text-[9px] tracking-wider flex items-center gap-1 ${
-            aiError ? 'border-red-500 text-red-400 bg-red-500/10' :
-            aiCopied ? 'border-emerald-500 text-emerald-400 bg-emerald-500/10' :
-            'border-zinc-800 text-zinc-400 hover:border-purple-500/50 active:border-purple-500/50'
-          }`}
-          title="Copy AI prompt to clipboard, paste into Claude.ai or ChatGPT">
-          {aiError ? <><X className="w-3 h-3" />FAILED</> : aiCopied ? <><Check className="w-3 h-3" />COPIED</> : <><Sparkles className="w-3 h-3" />AI</>}
-        </button>
-        <button onClick={() => onToggleWatch(ticker)} className="p-1.5 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50">
-          <Star className={`w-3.5 h-3.5 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-500'}`} />
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderEarningsBanner = () => earnLvl && (
-    <div className={`px-4 py-2 border-b ${earnLvl === 'imminent' ? 'bg-red-500/10 border-red-500/40' : 'bg-amber-500/10 border-amber-500/40'} flex-shrink-0`}>
-      <div className="flex items-center gap-2 text-[11px] tracking-wider">
-        <Calendar className={`w-3.5 h-3.5 ${earnLvl === 'imminent' ? 'text-red-400' : 'text-amber-400'}`} />
-        <span className={earnLvl === 'imminent' ? 'text-red-400 font-bold' : 'text-amber-400 font-bold'}>
-          {earnLvl === 'imminent' ? '⚠ EARNINGS IMMINENT' : '🔔 EARNINGS SOON'}
-        </span>
-        <span className="text-zinc-300">{meta.earn}</span>
-        <span className="text-zinc-500">· {meta.daysToEarn}d out</span>
-      </div>
-    </div>
-  );
-
-  const renderStats = () => (
-    <div className="grid grid-cols-4 border-b border-zinc-800 text-[10px] flex-shrink-0">
-      <Stat label="BX"   value={bx != null ? `${bx >= 0 ? '+' : ''}${bx.toFixed(2)}` : '—'} valueClass={zoneColor} />
-      <Stat label="PREV" value={prev != null ? `${prev >= 0 ? '+' : ''}${prev.toFixed(2)}` : '—'} />
-      <Stat label="PX"   value={meta.px ? `$${meta.px.toFixed(2)}` : '—'} />
-      <Stat label="MCAP" value={meta.mc ? (meta.mc >= 1000 ? `$${(meta.mc/1000).toFixed(2)}T` : `$${meta.mc.toFixed(1)}B`) : '—'} />
-    </div>
-  );
-
-  const renderConfluenceBody = () => align == null ? (
-    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">No multi-timeframe data yet.</div>
-  ) : (
-    <div className="px-4 py-2.5">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <AlignDots score={align} />
-          <span className={`text-[11px] font-bold tabular-nums ${align > 0 ? 'text-emerald-400' : align < 0 ? 'text-red-400' : 'text-amber-400'}`}>{align >= 0 ? '+' : ''}{align}/3</span>
-        </div>
-        {meta.composite != null && (
-          <span className="text-[10px] text-zinc-500 tabular-nums">
-            COMPOSITE: <span className="text-zinc-300">{meta.composite >= 0 ? '+' : ''}{Number(meta.composite).toFixed(2)}</span>
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-3 gap-1.5 text-[9px]">
-        {[{ lbl: 'D', val: meta.daily }, { lbl: 'W', val: meta.weekly }, { lbl: 'M', val: meta.monthly }].map(({ lbl, val }) => {
-          const z = val == null ? 'zinc' : val > 2 ? 'emerald' : val < -2 ? 'red' : 'amber';
-          const cls = z === 'emerald' ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
-                    : z === 'red'     ? 'bg-red-500/10 border-red-500/40 text-red-400'
-                    : z === 'amber'   ? 'bg-amber-500/10 border-amber-500/40 text-amber-400'
-                    : 'bg-zinc-900 border-zinc-800 text-zinc-600';
-          return (
-            <div key={lbl} className={`border px-2 py-1.5 flex items-center justify-between ${cls}`}>
-              <span className="font-bold tracking-wider">{lbl}</span>
-              <span className="tabular-nums">{val == null ? '—' : `${val >= 0 ? '+' : ''}${Number(val).toFixed(1)}`}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const renderBxRangeBody = () => bx == null ? null : (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between text-[9px] text-zinc-600 tracking-wider mb-1">
-        <span className="text-zinc-500">SCALE</span>
-        <div className="flex items-center gap-3 text-zinc-700">
-          <span>−10</span><span>−2</span><span>0</span><span>+2</span><span>+10</span>
-        </div>
-      </div>
-      <div className="relative h-2 bg-zinc-900 overflow-hidden">
-        <div className="absolute inset-y-0 left-0 w-[40%] bg-red-500/20" />
-        <div className="absolute inset-y-0 left-[40%] w-[20%] bg-amber-500/20" />
-        <div className="absolute inset-y-0 left-[60%] w-[40%] bg-emerald-500/20" />
-        {prev != null && <div className="absolute top-0 bottom-0 w-px bg-zinc-600" style={{ left: `${Math.max(0, Math.min(100, ((Math.max(-10, Math.min(10, prev)) + 10) / 20) * 100))}%` }}/>}
-        <div className={`absolute top-0 bottom-0 w-0.5 ${zone === 'bullish' ? 'bg-emerald-400' : zone === 'bearish' ? 'bg-red-400' : 'bg-amber-400'}`}
-          style={{ left: `${Math.max(0, Math.min(100, ((Math.max(-10, Math.min(10, bx)) + 10) / 20) * 100))}%` }}/>
-      </div>
-      {row?.transition && (
-        <div className="mt-2 flex items-center gap-2 text-[10px]">
-          <span className="text-zinc-500 tracking-wider">TRANSITION:</span>
-          <span className="text-zinc-400 tracking-wider uppercase">{row.transition.from}</span>
-          <ArrowRight className="w-3 h-3 text-zinc-600" />
-          <span className={`tracking-wider uppercase font-bold ${zoneColor}`}>{row.transition.to}</span>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderMarketBiasBody = () => !meta.biasDir ? (
-    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">No Market Bias data (insufficient history).</div>
-  ) : (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] tracking-wider text-zinc-500">DIRECTION:</span>
-          <span className={`text-[12px] font-bold tracking-wider ${meta.biasDir === 'bullish' ? 'text-emerald-400' : 'text-red-400'}`}>
-            {meta.biasDir === 'bullish' ? '▲ BULLISH' : '▼ BEARISH'}
-          </span>
-        </div>
-        <span className="text-[10px] tabular-nums text-zinc-500">
-          OSC: <span className={`${meta.biasOsc >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{meta.biasOsc >= 0 ? '+' : ''}{meta.biasOsc?.toFixed(2)}</span>
-        </span>
-      </div>
-      <div className={`p-2 border ${meta.inZone ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-zinc-800 bg-zinc-900/30'}`}>
-        <div className="flex items-center gap-2 text-[11px]">
-          {meta.inZone ? (
-            <>
-              <Target className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="text-cyan-400 font-bold tracking-wider">IN THE ZONE</span>
-              <span className="text-zinc-400">— price is testing the bias level. {meta.biasDir === 'bullish' ? 'Potential bullish entry zone (buy-the-dip).' : 'Potential bearish entry zone (sell-the-rip).'}</span>
-            </>
-          ) : (
-            <>
-              <Target className="w-3.5 h-3.5 text-zinc-600" />
-              <span className="text-zinc-500 font-bold tracking-wider">OUT OF ZONE</span>
-              <span className="text-zinc-600">— price is extended {meta.biasDir === 'bullish' ? 'above' : 'below'} the bias. Wait for pullback.</span>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderRange52wBody = () => (meta.pct52 == null || !meta.hi52 || !meta.lo52) ? null : (
-    <div className="px-4 py-3">
-      <div className="flex items-center justify-between text-[9px] text-zinc-600 tracking-wider mb-1">
-        <span className="text-zinc-500">POSITION</span>
-        <span className={`tabular-nums font-bold ${meta.pct52 > 80 ? 'text-emerald-400' : meta.pct52 < 20 ? 'text-red-400' : 'text-zinc-400'}`}>{meta.pct52.toFixed(0)}% of range</span>
-      </div>
-      <div className="relative h-2 bg-zinc-900 overflow-hidden">
-        <div className="absolute inset-y-0 left-0 bg-cyan-500/30" style={{ width: `${meta.pct52}%` }} />
-        <div className="absolute top-0 bottom-0 w-0.5 bg-cyan-400" style={{ left: `${Math.max(0, Math.min(100, meta.pct52))}%` }} />
-      </div>
-      <div className="flex items-center justify-between text-[9px] text-zinc-600 tracking-wider mt-1 tabular-nums">
-        <span>L ${Number(meta.lo52).toFixed(2)}</span>
-        <span>NOW ${meta.px ? meta.px.toFixed(2) : '—'}</span>
-        <span>H ${Number(meta.hi52).toFixed(2)}</span>
-      </div>
-    </div>
-  );
-
-  const renderBacktestBody = () => tickerBacktest.length === 0 ? (
-    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">No historical signals for {ticker} on this timeframe yet.</div>
-  ) : (
-    <div className="px-4 py-3">
-      <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return at 60 days</div>
-      <div className="space-y-1.5">
-        {tickerBacktest.slice(0, 5).map((s) => {
-          const ret = s.ret_60d;
-          const retColor = ret == null ? 'text-zinc-600' : ret > 0 ? 'text-emerald-400' : 'text-red-400';
-          const sigParts = s.signal_type.split('_to_');
-          return (
-            <div key={s.id} className="flex items-center justify-between text-[10px] py-1 border-b border-zinc-900 last:border-b-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-zinc-500 tabular-nums">{s.signal_date}</span>
-                <span className="text-zinc-600 tracking-wider uppercase truncate">{sigParts[0]} → {sigParts[1]}</span>
-              </div>
-              <span className={`font-bold tabular-nums ${retColor}`}>
-                {ret == null ? 'pending' : `${ret >= 0 ? '+' : ''}${Number(ret).toFixed(1)}%`}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  const renderNotesBody = () => (
-    <textarea value={noteVal} onChange={(e) => setNote(e.target.value)}
-      placeholder={`LEAPS thesis · strike / expiry / entry trigger…`}
-      className="w-full h-28 bg-zinc-950 text-zinc-200 text-[11px] px-4 py-2 resize-none focus:outline-none focus:bg-zinc-900/50 block"/>
-  );
-
-  // Collapsed summary badges
   const confluenceSummary = align != null ? (
-    <span className="flex items-center gap-1.5">
-      <AlignDots score={align} />
-      <span className={`tabular-nums font-bold ${align > 0 ? 'text-emerald-400' : align < 0 ? 'text-red-400' : 'text-amber-400'}`}>{align >= 0 ? '+' : ''}{align}/3</span>
-    </span>
-  ) : <span className="text-zinc-600">—</span>;
-
-  const bxSummary = bx != null ? <span className={`tabular-nums font-bold ${zoneColor}`}>{bx >= 0 ? '+' : ''}{bx.toFixed(2)}</span> : <span className="text-zinc-600">—</span>;
-
+    <span className="flex items-center gap-2"><AlignDots score={align} /><span className={`tabular-nums font-semibold ${align > 0 ? 'text-[#00d484]' : align < 0 ? 'text-[#ff3366]' : 'text-[#a1a1aa]'}`}>{align >= 0 ? '+' : ''}{align}/3</span></span>
+  ) : <span className="text-[#52525b]">—</span>;
+  const bxSummary = bx != null ? <span className={`tabular-nums font-semibold ${zoneColor}`}>{bx >= 0 ? '+' : ''}{bx.toFixed(2)}</span> : <span className="text-[#52525b]">—</span>;
   const biasSummary = meta.biasDir ? (
-    <span className="flex items-center gap-1">
-      <span className={`font-bold ${meta.biasDir === 'bullish' ? 'text-emerald-400' : 'text-red-400'}`}>
-        {meta.biasDir === 'bullish' ? '▲ BULL' : '▼ BEAR'}
-      </span>
-      {meta.inZone && <span className="text-cyan-400 font-bold">·IN-ZONE</span>}
+    <span className="flex items-center gap-1.5">
+      <span className={`font-semibold ${meta.biasDir === 'bullish' ? 'text-[#00d484]' : 'text-[#ff3366]'}`}>{meta.biasDir === 'bullish' ? '▲ Bull' : '▼ Bear'}</span>
+      {meta.inZone && <span className="px-1.5 py-0.5 bg-[rgba(180,242,0,0.1)] text-[#b4f200] rounded text-[9px] font-bold tracking-wider uppercase">In-Zone</span>}
     </span>
-  ) : <span className="text-zinc-600">—</span>;
+  ) : <span className="text-[#52525b]">—</span>;
+  const range52Summary = meta.pct52 != null ? <span className={`tabular-nums font-semibold ${meta.pct52 > 80 ? 'text-[#00d484]' : meta.pct52 < 20 ? 'text-[#ff3366]' : 'text-[#a1a1aa]'}`}>{meta.pct52.toFixed(0)}%</span> : <span className="text-[#52525b]">—</span>;
+  const backtestSummary = tickerBacktest.length > 0 ? <span className="text-[#a1a1aa]">{tickerBacktest.length} signals</span> : <span className="text-[#52525b]">—</span>;
+  const notesSummary = noteVal ? <span className="text-[#a1a1aa]">{noteVal.length} ch</span> : <span className="text-[#52525b]">—</span>;
 
-  const range52Summary = meta.pct52 != null ? <span className={`tabular-nums font-bold ${meta.pct52 > 80 ? 'text-emerald-400' : meta.pct52 < 20 ? 'text-red-400' : 'text-zinc-400'}`}>{meta.pct52.toFixed(0)}%</span> : <span className="text-zinc-600">—</span>;
-
-  const backtestSummary = tickerBacktest.length > 0 ? (
-    <span className="text-zinc-400">{tickerBacktest.length} signals</span>
-  ) : <span className="text-zinc-600">—</span>;
-
-  const notesSummary = noteVal ? <span className="text-zinc-400">{noteVal.length} ch</span> : <span className="text-zinc-600">—</span>;
-
-  // COMPACT — used by both desktop sidebar AND mobile drawer
   return (
-    <div className="flex flex-col h-full overflow-y-auto col-scroll">
-      <div className="sticky top-0 z-20 bg-zinc-950 flex-shrink-0">
-        {renderHeader()}{renderEarningsBanner()}{renderStats()}
+    <div className="flex flex-col h-full overflow-y-auto scrollbar-edge">
+      <div className="sticky top-0 z-20 backdrop-blur-xl bg-[rgba(8,9,11,0.85)] flex-shrink-0">
+        <div className="px-5 h-[68px] border-b border-[rgba(255,255,255,0.06)] flex items-center justify-between">
+          <div className="flex items-baseline gap-3 min-w-0">
+            <span className="text-[24px] font-bold tracking-tight">{ticker}</span>
+            <div className="flex flex-col text-[11px] min-w-0 leading-tight">
+              <span className="text-[#a1a1aa] truncate">{meta.ex || '—'} · {meta.sec || '—'}</span>
+              <span className="text-[#52525b] truncate">{meta.ind || ''}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button onClick={generateAIPrompt}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                aiError ? 'bg-[rgba(255,51,102,0.1)] border border-[#ff3366] text-[#ff3366]' :
+                aiCopied ? 'bg-[rgba(0,212,132,0.1)] border border-[#00d484] text-[#00d484]' :
+                'bg-[rgba(180,242,0,0.08)] border border-[#b4f200]/40 text-[#b4f200] hover:bg-[#b4f200] hover:text-[#08090b]'
+              }`}>
+              {aiError ? <><X className="w-[12px] h-[12px]" strokeWidth={2.5}/>Failed</> :
+               aiCopied ? <><Check className="w-[12px] h-[12px]" strokeWidth={2.5}/>Copied</> :
+               <><Sparkles className="w-[12px] h-[12px]" strokeWidth={2.5}/>AI Brief</>}
+            </button>
+            <button onClick={() => onToggleWatch(ticker)} className="btn-icon-edge !w-8 !h-8">
+              <Star className={`w-[14px] h-[14px] ${watched ? 'fill-[#ffa940] text-[#ffa940]' : 'text-[#71717a]'}`} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+        {earnLvl && (
+          <div className={`px-5 py-2 border-b ${earnLvl === 'imminent' ? 'bg-[rgba(255,51,102,0.06)] border-[rgba(255,51,102,0.25)]' : 'bg-[rgba(255,169,64,0.06)] border-[rgba(255,169,64,0.25)]'}`}>
+            <div className="flex items-center gap-2 text-[11px]">
+              <Calendar className={`w-[13px] h-[13px] ${earnLvl === 'imminent' ? 'text-[#ff3366]' : 'text-[#ffa940]'}`} strokeWidth={2} />
+              <span className={`font-semibold ${earnLvl === 'imminent' ? 'text-[#ff3366]' : 'text-[#ffa940]'}`}>{earnLvl === 'imminent' ? '⚠ Earnings imminent' : '🔔 Earnings soon'}</span>
+              <span className="text-[#a1a1aa]">{meta.earn}</span>
+              <span className="text-[#52525b]">· {meta.daysToEarn}d out</span>
+            </div>
+          </div>
+        )}
+        <div className="grid grid-cols-4 border-b border-[rgba(255,255,255,0.06)]">
+          <Stat label="BX"   value={bx != null ? `${bx >= 0 ? '+' : ''}${bx.toFixed(2)}` : '—'} valueClass={zoneColor} />
+          <Stat label="Prev" value={prev != null ? `${prev >= 0 ? '+' : ''}${prev.toFixed(2)}` : '—'} valueClass="text-[#a1a1aa]" />
+          <Stat label="Price" value={meta.px ? `$${meta.px.toFixed(2)}` : '—'} />
+          <Stat label="Cap"  value={meta.mc ? (meta.mc >= 1000 ? `$${(meta.mc/1000).toFixed(2)}T` : `$${meta.mc.toFixed(1)}B`) : '—'} />
+        </div>
       </div>
-      <CollapsibleSection title="CONFLUENCE" icon={Target} summary={confluenceSummary}>{renderConfluenceBody()}</CollapsibleSection>
-      <CollapsibleSection title="BX RANGE"   icon={Activity} summary={bxSummary}>{renderBxRangeBody()}</CollapsibleSection>
-      <CollapsibleSection title="MARKET BIAS" icon={BarChart3} summary={biasSummary}>{renderMarketBiasBody()}</CollapsibleSection>
-      <CollapsibleSection title="52-WEEK"    icon={TrendingUp} summary={range52Summary}>{renderRange52wBody()}</CollapsibleSection>
-      <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
-      <div className="flex-1 min-h-[60vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
-        <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
+
+      <CollapsibleSection title="Confluence" icon={Target} summary={confluenceSummary}>
+        {align == null ? <div className="px-5 py-3 text-[11px] text-[#52525b]">No multi-timeframe data yet.</div> : (
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2"><AlignDots score={align} /><span className={`text-[12px] font-semibold tabular-nums ${align > 0 ? 'text-[#00d484]' : align < 0 ? 'text-[#ff3366]' : 'text-[#a1a1aa]'}`}>{align >= 0 ? '+' : ''}{align}/3</span></div>
+              {meta.composite != null && <span className="text-[11px] text-[#71717a] tabular-nums">Composite <span className="text-[#fafafa] font-medium">{meta.composite >= 0 ? '+' : ''}{Number(meta.composite).toFixed(2)}</span></span>}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[{ lbl: 'D', val: meta.daily }, { lbl: 'W', val: meta.weekly }, { lbl: 'M', val: meta.monthly }].map(({ lbl, val }) => {
+                const tone = val == null ? 'mute' : val > 2 ? 'bull' : val < -2 ? 'bear' : 'neu';
+                const cls = tone === 'bull' ? 'bg-[rgba(0,212,132,0.05)] border-[rgba(0,212,132,0.25)] text-[#00d484]' :
+                            tone === 'bear' ? 'bg-[rgba(255,51,102,0.05)] border-[rgba(255,51,102,0.25)] text-[#ff3366]' :
+                            tone === 'neu'  ? 'bg-[#0f1015] border-[rgba(255,255,255,0.06)] text-[#a1a1aa]' :
+                                              'bg-[#0f1015] border-[rgba(255,255,255,0.06)] text-[#52525b]';
+                return (
+                  <div key={lbl} className={`border rounded-md px-3 py-2 flex items-center justify-between ${cls}`}>
+                    <span className="text-[11px] font-semibold">{lbl}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{val == null ? '—' : `${val >= 0 ? '+' : ''}${Number(val).toFixed(1)}`}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="BX Range" icon={Activity} summary={bxSummary}>
+        {bx == null ? null : (
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between text-[10px] text-[#52525b] mb-1.5 font-mono">
+              <span>SCALE</span>
+              <div className="flex items-center gap-4 text-[#52525b]"><span>−10</span><span>−2</span><span>0</span><span>+2</span><span>+10</span></div>
+            </div>
+            <div className="relative h-2 bg-[#0f1015] rounded-full overflow-hidden">
+              <div className="absolute inset-y-0 left-0 w-[40%] bg-[rgba(255,51,102,0.15)]" />
+              <div className="absolute inset-y-0 left-[40%] w-[20%] bg-[rgba(161,161,170,0.1)]" />
+              <div className="absolute inset-y-0 left-[60%] w-[40%] bg-[rgba(0,212,132,0.15)]" />
+              {prev != null && <div className="absolute top-0 bottom-0 w-px bg-[rgba(255,255,255,0.3)]" style={{ left: `${Math.max(0, Math.min(100, ((Math.max(-10, Math.min(10, prev)) + 10) / 20) * 100))}%` }}/>}
+              <div className={`absolute top-0 bottom-0 w-1 rounded-full ${zone === 'bullish' ? 'bg-[#00d484] shadow-[0_0_8px_rgba(0,212,132,0.6)]' : zone === 'bearish' ? 'bg-[#ff3366] shadow-[0_0_8px_rgba(255,51,102,0.6)]' : 'bg-[#a1a1aa]'}`}
+                style={{ left: `${Math.max(0, Math.min(100, ((Math.max(-10, Math.min(10, bx)) + 10) / 20) * 100))}%` }}/>
+            </div>
+            {row?.transition && (
+              <div className="mt-3 flex items-center gap-2 text-[11px]">
+                <span className="text-[#52525b]">Transition</span>
+                <span className="text-[#a1a1aa] capitalize">{row.transition.from}</span>
+                <ArrowRight className="w-[12px] h-[12px] text-[#52525b]" strokeWidth={2} />
+                <span className={`font-semibold capitalize ${zoneColor}`}>{row.transition.to}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Market Bias" icon={BarChart3} summary={biasSummary}>
+        {!meta.biasDir ? <div className="px-5 py-3 text-[11px] text-[#52525b]">No Market Bias data.</div> : (
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-[#71717a]">Direction</span>
+                <span className={`text-[13px] font-semibold ${meta.biasDir === 'bullish' ? 'text-[#00d484]' : 'text-[#ff3366]'}`}>{meta.biasDir === 'bullish' ? '▲ Bullish' : '▼ Bearish'}</span>
+              </div>
+              <span className="text-[11px] tabular-nums">Osc <span className={meta.biasOsc >= 0 ? 'text-[#00d484]' : 'text-[#ff3366]'}>{meta.biasOsc >= 0 ? '+' : ''}{meta.biasOsc?.toFixed(2)}</span></span>
+            </div>
+            <div className={`p-3 rounded-md border ${meta.inZone ? 'border-[#b4f200] bg-[rgba(180,242,0,0.06)]' : 'border-[rgba(255,255,255,0.06)] bg-[#0f1015]'}`}>
+              <div className="flex items-start gap-2 text-[11px]">
+                <Target className={`w-[14px] h-[14px] mt-0.5 flex-shrink-0 ${meta.inZone ? 'text-[#b4f200]' : 'text-[#52525b]'}`} strokeWidth={2} />
+                <div>
+                  <div className={`font-semibold ${meta.inZone ? 'text-[#b4f200]' : 'text-[#71717a]'}`}>{meta.inZone ? 'In the zone' : 'Out of zone'}</div>
+                  <div className="text-[#a1a1aa] mt-0.5">{meta.inZone ? `Price testing bias level. ${meta.biasDir === 'bullish' ? 'Potential bullish entry (buy-the-dip).' : 'Potential bearish entry (sell-the-rip).'}` : `Price extended ${meta.biasDir === 'bullish' ? 'above' : 'below'} the bias. Wait for pullback.`}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="52-Week" icon={TrendingUp} summary={range52Summary}>
+        {meta.pct52 == null || !meta.hi52 || !meta.lo52 ? null : (
+          <div className="px-5 py-3">
+            <div className="flex items-center justify-between text-[10px] mb-1.5">
+              <span className="text-[#52525b] font-mono uppercase tracking-wider">Position</span>
+              <span className={`tabular-nums font-semibold text-[11px] ${meta.pct52 > 80 ? 'text-[#00d484]' : meta.pct52 < 20 ? 'text-[#ff3366]' : 'text-[#a1a1aa]'}`}>{meta.pct52.toFixed(0)}% of range</span>
+            </div>
+            <div className="relative h-2 bg-[#0f1015] rounded-full overflow-hidden">
+              <div className="absolute inset-y-0 left-0 bg-[rgba(180,242,0,0.3)]" style={{ width: `${meta.pct52}%` }} />
+              <div className="absolute top-0 bottom-0 w-1 bg-[#b4f200] rounded-full shadow-[0_0_8px_rgba(180,242,0,0.6)]" style={{ left: `${Math.max(0, Math.min(100, meta.pct52))}%` }} />
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-[#71717a] mt-1.5 tabular-nums">
+              <span>L ${Number(meta.lo52).toFixed(2)}</span>
+              <span>Now ${meta.px ? meta.px.toFixed(2) : '—'}</span>
+              <span>H ${Number(meta.hi52).toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Backtest" icon={History} summary={backtestSummary}>
+        {tickerBacktest.length === 0 ? <div className="px-5 py-3 text-[11px] text-[#52525b]">No historical signals yet.</div> : (
+          <div className="px-5 py-3">
+            <div className="text-[10px] text-[#52525b] mb-2 uppercase tracking-wider font-semibold">Last {Math.min(tickerBacktest.length, 5)} signals · 60d return</div>
+            <div className="space-y-1.5">
+              {tickerBacktest.slice(0, 5).map((s) => {
+                const ret = s.ret_60d;
+                const retColor = ret == null ? 'text-[#52525b]' : ret > 0 ? 'text-[#00d484]' : 'text-[#ff3366]';
+                const sigParts = s.signal_type.split('_to_');
+                return (
+                  <div key={s.id} className="flex items-center justify-between text-[11px] py-1.5 border-b border-[rgba(255,255,255,0.04)] last:border-b-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[#71717a] tabular-nums font-mono">{s.signal_date}</span>
+                      <span className="text-[#52525b] capitalize truncate">{sigParts[0]} → {sigParts[1]}</span>
+                    </div>
+                    <span className={`font-semibold tabular-nums ${retColor}`}>{ret == null ? 'pending' : `${ret >= 0 ? '+' : ''}${Number(ret).toFixed(1)}%`}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <div className="flex-1 min-h-[55vh] flex-shrink-0 relative border-b border-[rgba(255,255,255,0.06)] bg-[#0f1015]">
+        <div className="absolute top-3 left-4 z-10 text-[10px] tracking-wider text-[#52525b] pointer-events-none font-mono uppercase font-semibold">TradingView · {interval}</div>
         {ticker && <TVChart ticker={ticker} interval={interval} />}
       </div>
-      <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
+
+      <CollapsibleSection title="Notes" icon={StickyNote} summary={notesSummary}>
+        <textarea value={noteVal} onChange={(e) => setNote(e.target.value)}
+          placeholder="LEAPS thesis · strike / expiry / entry trigger…"
+          className="w-full h-28 bg-[#08090b] text-[#fafafa] text-[12px] px-5 py-3 resize-none focus:outline-none focus:bg-[#0f1015] block placeholder-[#52525b]"/>
+      </CollapsibleSection>
     </div>
   );
 }
-
-function Stat({ label, value, valueClass = 'text-zinc-100' }) {
-  return (
-    <div className="px-3 py-2 border-r border-zinc-800 last:border-r-0">
-      <div className="text-[9px] text-zinc-600 tracking-[0.2em]">{label}</div>
-      <div className={`text-[12px] font-bold mt-0.5 ${valueClass}`}>{value}</div>
-    </div>
-  );
-}
-
-// ============================================================================
-// DRAWERS
-// ============================================================================
 
 function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, priceMax, setPriceMax, volMin, setVolMin, earnFilter, setEarnFilter, pct52Filter, setPct52Filter, biasFilter, setBiasFilter, inZoneOnly, setInZoneOnly, hasActiveFilters, onClear, onClose }) {
   return (
-    <div className="lg:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
-      <div className="w-full bg-zinc-950 border-t border-zinc-800 slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 h-12 border-b border-zinc-800 sticky top-0 bg-zinc-950">
+    <div className="lg:hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end z-50" onClick={onClose}>
+      <div className="w-full bg-[#08090b] border-t border-[rgba(255,255,255,0.06)] slide-up max-h-[88vh] overflow-y-auto rounded-t-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 h-12 border-b border-[rgba(255,255,255,0.06)] sticky top-0 backdrop-blur-xl bg-[rgba(8,9,11,0.85)]">
           <div className="flex items-center gap-2">
-            <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] tracking-[0.3em] font-bold text-emerald-400">FILTERS</span>
+            <SlidersHorizontal className="w-[14px] h-[14px] text-[#b4f200]" strokeWidth={2} />
+            <span className="text-[13px] font-semibold">Filters</span>
           </div>
-          <button onClick={onClose} className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#0f1015]"><X className="w-[16px] h-[16px] text-[#71717a]"/></button>
         </div>
-        <div className="p-4 space-y-5">
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">MARKET BIAS</div>
+        <div className="p-5 space-y-5">
+          <FilterBlock title="Market Bias">
             <div className="grid grid-cols-3 gap-2 mb-2">
-              {BIAS_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setBiasFilter(i)}
-                  className={`px-3 py-2 border text-[11px] tracking-wider ${
-                    biasFilter === i
-                      ? (i === 1 ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : i === 2 ? 'border-red-500 text-red-400 bg-red-500/5' : 'border-emerald-500 text-emerald-400 bg-emerald-500/5')
-                      : 'border-zinc-800 text-zinc-400'
-                  }`}>{b.label}</button>
-              ))}
+              {BIAS_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setBiasFilter(i)} className={`px-3 py-2 rounded-md text-[12px] font-medium ${biasFilter === i ? 'bg-[rgba(180,242,0,0.08)] border border-[#b4f200] text-[#b4f200]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] text-[#a1a1aa]'}`}>{b.label}</button>)}
             </div>
-            <button onClick={() => setInZoneOnly(z => !z)}
-              className={`w-full px-3 py-2 border text-[11px] tracking-wider ${inZoneOnly ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-400'}`}>
-              {inZoneOnly ? '✓ ONLY SHOW "IN ZONE"' : 'ONLY SHOW "IN ZONE"'}
-            </button>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">MARKET CAP</div>
+            <button onClick={() => setInZoneOnly(z => !z)} className={`w-full px-3 py-2 rounded-md text-[12px] font-medium ${inZoneOnly ? 'bg-[rgba(180,242,0,0.08)] border border-[#b4f200] text-[#b4f200]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] text-[#a1a1aa]'}`}>{inZoneOnly ? '✓ Only show "In Zone"' : 'Only show "In Zone"'}</button>
+          </FilterBlock>
+          <FilterBlock title="Market Cap">
             <div className="grid grid-cols-2 gap-2">
-              {MC_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setMcBucket(i)}
-                  className={`px-3 py-2 border text-[11px] tracking-wider ${mcBucket === i ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : 'border-zinc-800 text-zinc-400 active:border-zinc-600'}`}>{MC_BUCKETS_LONG[i]}</button>
-              ))}
+              {MC_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setMcBucket(i)} className={`px-3 py-2 rounded-md text-[12px] font-medium ${mcBucket === i ? 'bg-[rgba(180,242,0,0.08)] border border-[#b4f200] text-[#b4f200]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] text-[#a1a1aa]'}`}>{b.label}</button>)}
             </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">EARNINGS · skip if within</div>
+          </FilterBlock>
+          <FilterBlock title="Earnings · skip if within">
             <div className="grid grid-cols-5 gap-1.5">
-              {EARN_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setEarnFilter(i)}
-                  className={`px-2 py-2 border text-[10px] tracking-wider ${earnFilter === i ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-zinc-800 text-zinc-400'}`}>{b.label}</button>
-              ))}
+              {EARN_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setEarnFilter(i)} className={`px-2 py-2 rounded-md text-[11px] font-medium ${earnFilter === i ? 'bg-[rgba(255,169,64,0.1)] border border-[#ffa940] text-[#ffa940]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] text-[#a1a1aa]'}`}>{b.label}</button>)}
             </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">52-WEEK POSITION</div>
+          </FilterBlock>
+          <FilterBlock title="52-Week Position">
             <div className="grid grid-cols-2 gap-2">
-              {PCT52_BUCKETS.map((b, i) => (
-                <button key={b.label} onClick={() => setPct52Filter(i)}
-                  className={`px-3 py-2 border text-[11px] tracking-wider ${pct52Filter === i ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-400'}`}>{b.label}</button>
-              ))}
+              {PCT52_BUCKETS.map((b, i) => <button key={b.label} onClick={() => setPct52Filter(i)} className={`px-3 py-2 rounded-md text-[12px] font-medium ${pct52Filter === i ? 'bg-[rgba(180,242,0,0.08)] border border-[#b4f200] text-[#b4f200]' : 'bg-[#0f1015] border border-[rgba(255,255,255,0.06)] text-[#a1a1aa]'}`}>{b.label}</button>)}
             </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">PRICE RANGE ($)</div>
+          </FilterBlock>
+          <FilterBlock title="Price Range ($)">
             <div className="flex items-center gap-2">
-              <input value={priceMin} onChange={e => setPriceMin(e.target.value)} placeholder="MIN" type="number" inputMode="decimal"
-                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
-              <span className="text-zinc-700">–</span>
-              <input value={priceMax} onChange={e => setPriceMax(e.target.value)} placeholder="MAX" type="number" inputMode="decimal"
-                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+              <input value={priceMin} onChange={e => setPriceMin(e.target.value)} placeholder="Min" type="number" inputMode="decimal" className="search-edge flex-1"/>
+              <span className="text-[#52525b]">–</span>
+              <input value={priceMax} onChange={e => setPriceMax(e.target.value)} placeholder="Max" type="number" inputMode="decimal" className="search-edge flex-1"/>
             </div>
-          </div>
-          <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">MIN VOLUME (M)</div>
-            <input value={volMin} onChange={e => setVolMin(e.target.value)} placeholder="0" type="number" inputMode="decimal"
-              className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
-          </div>
+          </FilterBlock>
+          <FilterBlock title="Min Volume (M)">
+            <input value={volMin} onChange={e => setVolMin(e.target.value)} placeholder="0" type="number" inputMode="decimal" className="search-edge w-full"/>
+          </FilterBlock>
         </div>
-        <div className="flex gap-2 p-4 border-t border-zinc-800 sticky bottom-0 bg-zinc-950">
-          {hasActiveFilters && (
-            <button onClick={onClear} className="flex-1 py-3 border border-zinc-800 text-[11px] text-red-400 tracking-[0.2em] active:bg-red-500/5">CLEAR</button>
-          )}
-          <button onClick={onClose} className="flex-1 py-3 bg-emerald-500/10 border border-emerald-500 text-[11px] text-emerald-400 tracking-[0.2em] active:bg-emerald-500/20">APPLY</button>
+        <div className="flex gap-2 p-4 border-t border-[rgba(255,255,255,0.06)] sticky bottom-0 backdrop-blur-xl bg-[rgba(8,9,11,0.85)]">
+          {hasActiveFilters && <button onClick={onClear} className="flex-1 py-3 rounded-md border border-[rgba(255,51,102,0.3)] bg-[rgba(255,51,102,0.05)] text-[12px] text-[#ff3366] font-medium">Clear all</button>}
+          <button onClick={onClose} className="flex-1 py-3 rounded-md bg-[#b4f200] text-[#08090b] text-[12px] font-semibold">Apply</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FilterBlock({ title, children }) {
+  return (
+    <div>
+      <div className="text-[10px] text-[#52525b] uppercase tracking-wider font-semibold mb-2">{title}</div>
+      {children}
     </div>
   );
 }
 
 function AlertsDrawer({ transitions, onClose, onSelect }) {
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-start justify-end z-50" onClick={onClose}>
-      <div className="w-full md:w-[480px] h-full bg-zinc-950 border-l border-zinc-800 flex flex-col slide-right" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 h-12 border-b border-zinc-800 flex-shrink-0">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-start justify-end z-50" onClick={onClose}>
+      <div className="w-full md:w-[440px] h-full bg-[#08090b] border-l border-[rgba(255,255,255,0.06)] flex flex-col slide-right" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 h-12 border-b border-[rgba(255,255,255,0.06)] flex-shrink-0 backdrop-blur-xl bg-[rgba(8,9,11,0.85)]">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-400" />
-            <span className="text-[11px] tracking-[0.3em] font-bold text-amber-400">ZONE.TRANSITIONS</span>
-            <span className="text-[10px] text-zinc-500">({transitions.length})</span>
+            <AlertCircle className="w-[14px] h-[14px] text-[#ffa940]" strokeWidth={2} />
+            <span className="text-[13px] font-semibold">Zone Transitions</span>
+            <span className="text-[11px] text-[#52525b] tabular-nums">({transitions.length})</span>
           </div>
-          <button onClick={onClose} className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#0f1015]"><X className="w-[16px] h-[16px] text-[#71717a]"/></button>
         </div>
-        <div className="flex-1 overflow-y-auto col-scroll">
-          {transitions.length === 0 ? (
-            <div className="p-8 text-center text-[10px] text-zinc-600 tracking-wider">— NO ZONE TRANSITIONS SINCE LAST SCAN —</div>
-          ) : transitions.sort((a, b) => Math.abs(b.bx - (b.prev ?? 0)) - Math.abs(a.bx - (a.prev ?? 0))).map(r => {
-            const toClass = r.zone === 'bullish' ? 'text-emerald-400' : r.zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
+        <div className="flex-1 overflow-y-auto scrollbar-edge">
+          {transitions.length === 0 ? <div className="p-8 text-center text-[11px] text-[#52525b]">— No zone transitions since last scan —</div> : transitions.sort((a, b) => Math.abs(b.bx - (b.prev ?? 0)) - Math.abs(a.bx - (a.prev ?? 0))).map(r => {
+            const toClass = r.zone === 'bullish' ? 'text-[#00d484]' : r.zone === 'bearish' ? 'text-[#ff3366]' : 'text-[#a1a1aa]';
             return (
               <div key={r.t} onClick={() => onSelect(r.t)}
-                className="px-4 py-3 border-b border-zinc-900 active:bg-zinc-900 md:hover:bg-zinc-900 cursor-pointer">
+                className="px-5 py-3 border-b border-[rgba(255,255,255,0.04)] hover:bg-[#0f1015] cursor-pointer">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-bold tracking-wider text-zinc-100">{r.t}</span>
-                  <span className={`text-[12px] font-bold ${toClass}`}>{r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}</span>
+                  <span className="text-[14px] font-semibold tracking-tight">{r.t}</span>
+                  <span className={`text-[14px] font-semibold tabular-nums ${toClass}`}>{r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}</span>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] tracking-wider">
-                  <span className="text-zinc-500">{r.transition.from.toUpperCase()}</span>
-                  <ArrowRight className="w-3 h-3 text-zinc-700" />
-                  <span className={`font-bold ${toClass}`}>{r.transition.to.toUpperCase()}</span>
-                  {r.prev != null && <span className="ml-auto text-zinc-600">Δ {(r.bx - r.prev).toFixed(2)}</span>}
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="text-[#71717a] capitalize">{r.transition.from}</span>
+                  <ArrowRight className="w-[12px] h-[12px] text-[#52525b]" strokeWidth={2} />
+                  <span className={`font-semibold capitalize ${toClass}`}>{r.transition.to}</span>
+                  {r.prev != null && <span className="ml-auto text-[#52525b] tabular-nums">Δ {(r.bx - r.prev).toFixed(2)}</span>}
                 </div>
               </div>
             );
