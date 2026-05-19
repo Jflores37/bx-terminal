@@ -30,7 +30,11 @@ async function sbFetch(path) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Range: '0-9999' },
   });
-  if (!r.ok) throw new Error(`Supabase ${r.status}: ${await r.text()}`);
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    console.error(`Supabase ${r.status} on ${path}: ${detail}`);
+    throw new Error(`Data request failed (${r.status}). See console for details.`);
+  }
   return r.json();
 }
 
@@ -82,6 +86,13 @@ async function fetchBacktestForTicker(ticker, timeframe) {
 
 function zoneOf(bx){ if(bx<-2) return 'bearish'; if(bx>2) return 'bullish'; return 'neutral'; }
 function transitionOf(cur,prev){ if(prev==null) return null; const a=zoneOf(prev),b=zoneOf(cur); return a===b?null:{from:a,to:b}; }
+
+function splitMovers(movers) {
+  return {
+    bullishMoves: movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25),
+    bearishMoves: movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25),
+  };
+}
 
 const MC_BUCKETS = [
   { label: 'ALL', min: 0, max: Infinity }, { label: 'MEGA', min: 200, max: Infinity },
@@ -304,70 +315,64 @@ export default function App() {
       if (!isVert && !isHoriz) return;
       if (view !== 'zones' && view !== 'movers') return;
 
-      // Stop the column scroll IMMEDIATELY, before we even compute anything
-      e.preventDefault();
-      e.stopPropagation();
+      // Resolve the target row without side effects first; only swallow the
+      // key (which blocks native scroll) if we actually have somewhere to go.
+      let next = null;
 
       if (view === 'zones') {
         const lists = { bearish, neutral, bullish };
         const order = ['bearish', 'neutral', 'bullish'];
-        // Determine current zone from the selected ticker (use unfiltered data for zone lookup)
         const selRow = scan.data.find(r => r.t === selected);
         let curZone = selRow ? zoneOf(selRow.bx) : 'neutral';
         let list = lists[curZone];
-        // If the selected ticker isn't in the (filtered) list, find a fallback
         if (!list || list.length === 0) {
-          // Try other zones in order
           for (const z of order) { if (lists[z].length) { curZone = z; list = lists[z]; break; } }
-          if (!list || list.length === 0) return;
         }
-        const idx = list.findIndex(r => r.t === selected);
-
-        if (isVert) {
-          const len = list.length;
-          if (idx === -1) { setSelected(list[0].t); return; }
-          const next = e.key === 'ArrowDown' ? (idx + 1) % len : (idx - 1 + len) % len;
-          setSelected(list[next].t);
-        } else {
-          // ←/→ switch columns
-          const curIdx = order.indexOf(curZone);
-          const dir = e.key === 'ArrowRight' ? 1 : -1;
-          // Find the next non-empty column in that direction
-          for (let step = 1; step <= 3; step++) {
-            const ni = curIdx + dir * step;
-            if (ni < 0 || ni > 2) break;
-            const targetList = lists[order[ni]];
-            if (targetList.length === 0) continue;
-            // Land on same relative position if possible
-            const targetIdx = Math.min(Math.max(idx, 0), targetList.length - 1);
-            setSelected(targetList[targetIdx].t);
-            return;
+        if (list && list.length) {
+          const idx = list.findIndex(r => r.t === selected);
+          if (isVert) {
+            const len = list.length;
+            next = idx === -1
+              ? list[0].t
+              : list[(e.key === 'ArrowDown' ? idx + 1 : idx - 1 + len) % len].t;
+          } else {
+            const curIdx = order.indexOf(curZone);
+            const dir = e.key === 'ArrowRight' ? 1 : -1;
+            for (let step = 1; step <= 3; step++) {
+              const ni = curIdx + dir * step;
+              if (ni < 0 || ni > 2) break;
+              const targetList = lists[order[ni]];
+              if (targetList.length === 0) continue;
+              next = targetList[Math.min(Math.max(idx, 0), targetList.length - 1)].t;
+              break;
+            }
           }
         }
-      } else if (view === 'movers') {
-        const bullishMoves = movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25);
-        const bearishMoves = movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25);
+      } else {
+        const { bullishMoves, bearishMoves } = splitMovers(movers);
         const inBull = bullishMoves.findIndex(r => r.ticker === selected);
         const inBear = bearishMoves.findIndex(r => r.ticker === selected);
         let curList, curIdx;
         if (inBull >= 0)      { curList = bullishMoves; curIdx = inBull; }
         else if (inBear >= 0) { curList = bearishMoves; curIdx = inBear; }
         else                  { curList = bullishMoves.length ? bullishMoves : bearishMoves; curIdx = -1; }
-        if (!curList || curList.length === 0) return;
-
-        if (isVert) {
-          const len = curList.length;
-          if (curIdx === -1) { setSelected(curList[0].ticker); return; }
-          const next = e.key === 'ArrowDown' ? (curIdx + 1) % len : (curIdx - 1 + len) % len;
-          setSelected(curList[next].ticker);
-        } else {
-          // ←/→ switch between bullish and bearish movers
-          const targetList = curList === bullishMoves ? bearishMoves : bullishMoves;
-          if (!targetList.length) return;
-          const targetIdx = Math.min(Math.max(curIdx, 0), targetList.length - 1);
-          setSelected(targetList[targetIdx].ticker);
+        if (curList && curList.length) {
+          if (isVert) {
+            const len = curList.length;
+            next = curIdx === -1
+              ? curList[0].ticker
+              : curList[(e.key === 'ArrowDown' ? curIdx + 1 : curIdx - 1 + len) % len].ticker;
+          } else {
+            const targetList = curList === bullishMoves ? bearishMoves : bullishMoves;
+            if (targetList.length) next = targetList[Math.min(Math.max(curIdx, 0), targetList.length - 1)].ticker;
+          }
         }
       }
+
+      if (next == null) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSelected(next);
     };
     window.addEventListener('keydown', handler, { capture: true });
     return () => window.removeEventListener('keydown', handler, { capture: true });
@@ -724,8 +729,7 @@ export default function App() {
 // ============================================================================
 
 function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe, mobileMoverTab, setMobileMoverTab }) {
-  const bullishMoves = movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25);
-  const bearishMoves = movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25);
+  const { bullishMoves, bearishMoves } = splitMovers(movers);
 
   // Mobile swipe to switch between BULLISH ↔ BEARISH movers
   const touchRef = useRef({ x: 0, y: 0, active: false });
