@@ -215,18 +215,32 @@ export default function App() {
   const toggleZoneSort = (zone) =>
     setZoneSort(s => ({ ...s, [zone]: s[zone] === 'asc' ? 'desc' : 'asc' }));
 
+  const loadSeq = useRef(0);
+  const loadData = (tf) => {
+    const seq = ++loadSeq.current;
+    setLoading(true);
+    return Promise.allSettled([
+      fetchScan(tf), fetchMovers(tf), fetchSectors(tf), fetchBacktestSummary(tf),
+    ]).then(([s, m, sec, bt]) => {
+      if (seq !== loadSeq.current) return; // a newer load (or unmount) superseded this one
+      if (s.status === 'fulfilled') {
+        setScan(s.value);
+        setError(null);
+        if (s.value.data.length) setSelected(cur => cur ?? s.value.data[0].t);
+      } else {
+        setError(s.reason?.message || String(s.reason));
+      }
+      if (m.status === 'fulfilled')   setMovers(m.value);
+      if (sec.status === 'fulfilled') setSectors(sec.value);
+      if (bt.status === 'fulfilled')  setBacktestSummary(bt.value);
+    }).finally(() => {
+      if (seq === loadSeq.current) setLoading(false);
+    });
+  };
+
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true); setError(null);
-    Promise.all([fetchScan(timeframe), fetchMovers(timeframe), fetchSectors(timeframe), fetchBacktestSummary(timeframe)])
-      .then(([s, m, sec, bt]) => {
-        if (cancelled) return;
-        setScan(s); setMovers(m); setSectors(sec); setBacktestSummary(bt);
-        if (s.data.length && !selected) setSelected(s.data[0].t);
-      })
-      .catch(e => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    loadData(timeframe);
+    return () => { loadSeq.current++; };
   }, [timeframe]);
 
   useEffect(() => { saveLocal('bx_watchlist', watchlist); }, [watchlist]);
@@ -370,13 +384,7 @@ export default function App() {
     setMcBucket(0); setEarnFilter(0); setPct52Filter(0);
     setSectorFilter(null); setBiasFilter(0); setInZoneOnly(false); setWatchOnly(false);
   };
-  const refresh = () => {
-    setLoading(true);
-    Promise.all([fetchScan(timeframe), fetchMovers(timeframe), fetchSectors(timeframe), fetchBacktestSummary(timeframe)])
-      .then(([s, m, sec, bt]) => { setScan(s); setMovers(m); setSectors(sec); setBacktestSummary(bt); })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  };
+  const refresh = () => loadData(timeframe);
 
   const selectedMeta = scan.meta[selected] || {};
   const selectedRow = decorated.find(r => r.t === selected);
@@ -785,14 +793,15 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
 }
 
 function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote }) {
-  const zone = r.current_zone;
+  const zone = r.current_zone || 'neutral';
   const zoneColor = zone === 'bullish' ? 'text-emerald-400' : zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
   const delta = Number(r.delta_bx);
   const deltaColor = delta > 0 ? 'text-emerald-400' : 'text-red-400';
   const prevBx = Number(r.prev_bx);
   const curBx = Number(r.bx);
   const transitioned = r.current_zone !== r.previous_zone;
-  const tArrow = transitioned ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
+  const tArrow = transitioned && r.previous_zone && r.current_zone
+    ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
 
   return (
     <div onClick={onSelect} data-ticker={r.ticker}
@@ -843,7 +852,7 @@ function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist,
           <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
         ) : rows.map(r => {
           const isSelected = selected === r.ticker;
-          const tArrow = r.current_zone !== r.previous_zone
+          const tArrow = r.current_zone !== r.previous_zone && r.previous_zone && r.current_zone
             ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
           return (
             <div key={r.ticker} onClick={() => onSelect(r.ticker)} data-ticker={r.ticker}
@@ -1537,7 +1546,7 @@ function AlertsDrawer({ transitions, onClose, onSelect }) {
         <div className="flex-1 overflow-y-auto col-scroll">
           {transitions.length === 0 ? (
             <div className="p-8 text-center text-[10px] text-zinc-600 tracking-wider">— NO ZONE TRANSITIONS SINCE LAST SCAN —</div>
-          ) : transitions.sort((a, b) => Math.abs(b.bx - (b.prev ?? 0)) - Math.abs(a.bx - (a.prev ?? 0))).map(r => {
+          ) : [...transitions].sort((a, b) => Math.abs(b.bx - (b.prev ?? 0)) - Math.abs(a.bx - (a.prev ?? 0))).map(r => {
             const toClass = r.zone === 'bullish' ? 'text-emerald-400' : r.zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
             return (
               <div key={r.t} onClick={() => onSelect(r.t)}
