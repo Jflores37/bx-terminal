@@ -951,6 +951,9 @@ function BacktestView({ summary, timeframe, scan }) {
     { key: 'bearish_to_bullish',  label: 'BEARISH → BULLISH', desc: 'Sharp reversal up',               color: 'emerald' },
   ];
   const rows = PRIORITY.map(p => ({ ...p, data: summary.find(s => s.signal_type === p.key) || null }));
+  // Forward-return horizons are measured in BARS of the selected timeframe, not always days.
+  const hu = SCAN_META[timeframe].tvInterval; // D / W / M
+  const huWord = timeframe === 'daily' ? 'days' : timeframe === 'weekly' ? 'weeks' : 'months';
   return (
     <div className="flex-1 overflow-y-auto col-scroll bg-zinc-950">
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 md:py-6">
@@ -980,11 +983,11 @@ function BacktestView({ summary, timeframe, scan }) {
                 </div>
                 {data && (
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px]">
-                    <Stat label="AVG 5D"      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 20D"     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 60D"     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="AVG 120D"    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label="WIN 60D"     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
+                    <Stat label={`AVG 5${hu}`}      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 20${hu}`}     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 60${hu}`}     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 120${hu}`}    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`WIN 60${hu}`}     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
                   </div>
                 )}
               </div>
@@ -993,9 +996,9 @@ function BacktestView({ summary, timeframe, scan }) {
         </div>
 
         <div className="mt-6 px-4 py-3 border border-zinc-800 bg-zinc-900/30 text-[10px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-400">How to read this:</span> Each row shows what happened on average AFTER that signal type fired historically (past 2 years).
-          For example, "NEUTRAL → BULLISH" returns ~X% on average after 60 days means: when BX crossed above +2 across all tickers, the median stock gained X% over the next 60 trading days.
-          <span className="text-zinc-400"> Win rate 60D</span> = % of those signals that ended in profit at 60 days.
+          <span className="text-zinc-400">How to read this:</span> Each row shows what happened on average AFTER that signal type fired historically.
+          For example, "NEUTRAL → BULLISH" returns ~X% on average after 60 {huWord} means: when BX crossed above +2 across all tickers, the median stock gained X% over the next 60 {huWord}.
+          <span className="text-zinc-400"> Win rate 60{hu}</span> = % of those signals that ended in profit at 60 {huWord}.
           Use this to gauge the edge: a 65% win rate beats 50% (random).
         </div>
       </div>
@@ -1364,7 +1367,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
     <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">No historical signals for {ticker} on this timeframe yet.</div>
   ) : (
     <div className="px-4 py-3">
-      <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return at 60 days</div>
+      <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return at 60 {timeframe === 'daily' ? 'days' : timeframe === 'weekly' ? 'weeks' : 'months'}</div>
       <div className="space-y-1.5">
         {tickerBacktest.slice(0, 5).map((s) => {
           const ret = s.ret_60d;
