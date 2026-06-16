@@ -1,10 +1,15 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Star, StickyNote, X, Search, AlertCircle, ArrowRight, Radio,
   SlidersHorizontal, ChevronLeft, ChevronDown, ChevronUp, RefreshCw, TrendingUp, Activity,
   Calendar, Target, Layers, BarChart3, Sparkles, Check, History
 } from 'lucide-react';
+import { SCAN_META, Stat } from './shared';
+
+// Non-default views are code-split: their JS only loads when the tab is opened.
+const SectorsView = React.lazy(() => import('./SectorsView'));
+const BacktestView = React.lazy(() => import('./BacktestView'));
 
 // ============================================================================
 // BX TERMINAL v3 — LEAPS Lens with Market Bias, Backtest, AI Brief, Mobile polish
@@ -13,11 +18,7 @@ import {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const SCAN_META = {
-  daily:   { tvInterval: 'D', label: 'DAILY'   },
-  weekly:  { tvInterval: 'W', label: 'WEEKLY'  },
-  monthly: { tvInterval: 'M', label: 'MONTHLY' },
-};
+// SCAN_META + Stat are imported from ./shared (also used by the lazy views).
 
 const VIEWS = {
   zones:    { label: 'ZONES',    icon: Activity   },
@@ -712,9 +713,9 @@ export default function App() {
           mobileMoverTab={mobileMoverTab} setMobileMoverTab={setMobileMoverTab}/>
       )}
 
-      {view === 'sectors' && <SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/>}
+      {view === 'sectors' && <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/></Suspense>}
 
-      {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan} error={backtestError} onRetry={refresh}/>}
+      {view === 'backtest' && <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan} error={backtestError} onRetry={refresh}/></Suspense>}
 
       {mobileDetailOpen && selected && (
         <div role="dialog" aria-modal="true" aria-label={`${selected} details`} className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up pt-[env(safe-area-inset-top)]">
@@ -927,131 +928,9 @@ function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist,
   );
 }
 
-function SectorsView({ sectors, timeframe, activeSector, onSelectSector }) {
-  const sorted = [...sectors].sort((a, b) => Number(b.avg_bx) - Number(a.avg_bx));
-  const maxAbs = Math.max(...sorted.map(s => Math.abs(Number(s.avg_bx))), 1);
-  return (
-    <div className="flex-1 overflow-y-auto col-scroll bg-zinc-950">
-      <div className="max-w-4xl mx-auto px-4 md:px-6 py-4 md:py-6">
-        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
-          <Layers className="w-4 h-4 text-emerald-400" />
-          <h2 className="text-[12px] tracking-[0.3em] font-bold text-emerald-400">SECTOR PULSE · {SCAN_META[timeframe].label}</h2>
-          <span className="text-[10px] text-zinc-500">click any sector to drill into its tickers</span>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {sorted.map(s => {
-            const avg = Number.isFinite(Number(s.avg_bx)) ? Number(s.avg_bx) : 0;
-            const positive = avg > 0;
-            const color = avg > 2 ? 'emerald' : avg < -2 ? 'red' : 'amber';
-            const c = color === 'emerald' ? { text: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500/40' }
-                    : color === 'red'     ? { text: 'text-red-400',     bg: 'bg-red-500',     border: 'border-red-500/40' }
-                    : { text: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500/40' };
-            const widthPct = maxAbs > 0 ? (Math.abs(avg) / maxAbs) * 100 : 0;
-            const isActive = activeSector === s.sector;
-            return (
-              <button key={s.sector} onClick={() => onSelectSector && onSelectSector(s.sector)}
-                className={`text-left border ${isActive ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_0_1px_rgb(52,211,153)]' : `${c.border} bg-zinc-900/30 hover:bg-zinc-900/60 hover:border-zinc-600`} p-3 transition-colors no-tap-highlight`}>
-                <div className="flex items-baseline justify-between mb-1.5 gap-2">
-                  <div className="flex items-baseline gap-2 min-w-0">
-                    <span className="text-[11px] tracking-[0.2em] font-bold text-zinc-100">{s.sector.toUpperCase()}</span>
-                    {isActive && <span className="text-[8px] tracking-[0.25em] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5">ACTIVE</span>}
-                  </div>
-                  <span className={`text-[14px] font-bold tabular-nums ${c.text}`}>{positive ? '+' : ''}{avg.toFixed(2)}</span>
-                </div>
-                <div className="h-1 bg-zinc-800 relative overflow-hidden mb-2">
-                  <div className={`absolute top-0 bottom-0 ${c.bg}`}
-                    style={positive ? { left: '50%', width: `${widthPct/2}%` } : { right: '50%', width: `${widthPct/2}%` }} />
-                  <div className="absolute top-0 bottom-0 left-1/2 w-px bg-zinc-600" />
-                </div>
-                <div className="flex items-center gap-3 text-[9px] text-zinc-500 tracking-wider">
-                  <span>{s.ticker_count} tickers</span>
-                  <span className="text-emerald-500">{s.bullish_count} bull</span>
-                  <span className="text-amber-500">{s.neutral_count} neu</span>
-                  <span className="text-red-500">{s.bearish_count} bear</span>
-                  <span className="ml-auto">{s.pct_bullish}% bullish</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
+// SectorsView moved to ./SectorsView (lazy-loaded).
 
-function BacktestView({ summary, timeframe, scan, error, onRetry }) {
-  // Filter to most useful signal types (zone transitions involving entries/exits)
-  const PRIORITY = [
-    { key: 'neutral_to_bullish',  label: 'NEUTRAL → BULLISH', desc: 'Bullish breakout (long entry)',  color: 'emerald' },
-    { key: 'bearish_to_neutral',  label: 'BEARISH → NEUTRAL', desc: 'Selling pressure easing',         color: 'amber' },
-    { key: 'neutral_to_bearish',  label: 'NEUTRAL → BEARISH', desc: 'Bearish breakdown (long exit)',  color: 'red' },
-    { key: 'bullish_to_neutral',  label: 'BULLISH → NEUTRAL', desc: 'Bullish momentum fading',         color: 'amber' },
-    { key: 'bullish_to_bearish',  label: 'BULLISH → BEARISH', desc: 'Sharp reversal down',             color: 'red' },
-    { key: 'bearish_to_bullish',  label: 'BEARISH → BULLISH', desc: 'Sharp reversal up',               color: 'emerald' },
-  ];
-  const rows = PRIORITY.map(p => ({ ...p, data: summary.find(s => s.signal_type === p.key) || null }));
-  // Forward-return horizons are measured in BARS of the selected timeframe, not always days.
-  const hu = SCAN_META[timeframe].tvInterval; // D / W / M
-  const huWord = timeframe === 'daily' ? 'days' : timeframe === 'weekly' ? 'weeks' : 'months';
-  return (
-    <div className="flex-1 overflow-y-auto col-scroll bg-zinc-950">
-      <div className="max-w-5xl mx-auto px-4 md:px-6 py-4 md:py-6">
-        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
-          <History className="w-4 h-4 text-emerald-400" />
-          <h2 className="text-[12px] tracking-[0.3em] font-bold text-emerald-400">SIGNAL BACKTEST · {SCAN_META[timeframe].label}</h2>
-          <span className="text-[10px] text-zinc-500">historical performance of BX zone-transition signals across all {scan.data.length} tickers</span>
-        </div>
-
-        {error && (
-          <div className="mb-3 px-3 py-2 border border-red-500/40 bg-red-500/5 text-[10px] text-red-400 tracking-wider flex items-center gap-2">
-            <AlertCircle className="w-3 h-3 flex-shrink-0" />
-            <span>Backtest data failed to load.</span>
-            <button onClick={onRetry} className="underline active:text-red-300 md:hover:text-red-300">Retry</button>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          {rows.map(({ key, label, desc, color, data }) => {
-            const c = color === 'emerald' ? { text: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/5' }
-                    : color === 'red'     ? { text: 'text-red-400',     border: 'border-red-500/40',     bg: 'bg-red-500/5' }
-                    : { text: 'text-amber-400', border: 'border-amber-500/40', bg: 'bg-amber-500/5' };
-            return (
-              <div key={key} className={`border ${c.border} ${c.bg} p-4`}>
-                <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
-                  <div>
-                    <div className={`text-[12px] font-bold tracking-[0.2em] ${c.text}`}>{label}</div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">{desc}</div>
-                  </div>
-                  {data ? (
-                    <div className="text-[10px] text-zinc-500 tracking-wider">N={data.n_signals} historical signals</div>
-                  ) : (
-                    <div className="text-[10px] text-zinc-700 tracking-wider">no data yet</div>
-                  )}
-                </div>
-                {data && (
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px]">
-                    <Stat label={`AVG 5${hu}`}      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={data.avg_5d == null ? 'text-zinc-600' : Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 20${hu}`}     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={data.avg_20d == null ? 'text-zinc-600' : Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 60${hu}`}     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={data.avg_60d == null ? 'text-zinc-600' : Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 120${hu}`}    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={data.avg_120d == null ? 'text-zinc-600' : Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`WIN 60${hu}`}     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={data.win_rate_60d_pct == null ? 'text-zinc-600' : Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 px-4 py-3 border border-zinc-800 bg-zinc-900/30 text-[10px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-400">How to read this:</span> Each row shows what happened on average AFTER that signal type fired historically.
-          For example, "NEUTRAL → BULLISH" returns ~X% on average after 60 {huWord} means: when BX crossed above +2 across all tickers, the median stock gained X% over the next 60 {huWord}.
-          <span className="text-zinc-400"> Win rate 60{hu}</span> = % of those signals that ended in profit at 60 {huWord}.
-          Use this to gauge the edge: a 65% win rate beats 50% (random).
-        </div>
-      </div>
-    </div>
-  );
-}
+// BacktestView moved to ./BacktestView (lazy-loaded).
 
 // ============================================================================
 // COLUMNS
@@ -1535,14 +1414,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   );
 }
 
-function Stat({ label, value, valueClass = 'text-zinc-100' }) {
-  return (
-    <div className="px-3 py-2 border-r border-zinc-800 last:border-r-0">
-      <div className="text-[9px] text-zinc-600 tracking-[0.2em]">{label}</div>
-      <div className={`text-[12px] font-bold mt-0.5 ${valueClass}`}>{value}</div>
-    </div>
-  );
-}
+// Stat is imported from ./shared.
 
 // ============================================================================
 // DRAWERS
