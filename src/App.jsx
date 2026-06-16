@@ -1123,7 +1123,7 @@ function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist,
   );
 }
 
-function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote, mobile }) {
+const RowItem = React.memo(function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote, mobile }) {
   const c = zone === 'bullish' ? { text: 'text-emerald-400' } : zone === 'bearish' ? { text: 'text-red-400' } : { text: 'text-amber-400' };
   const extreme = Math.abs(r.bx) > 10;
   const tArrow = r.transition ? (r.transition.to === 'bullish' ? '↑' : r.transition.to === 'bearish' ? '↓' : '→') : null;
@@ -1166,7 +1166,7 @@ function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote,
       </div>
     </div>
   );
-}
+}, (a, b) => a.r === b.r && a.zone === b.zone && a.selected === b.selected && a.watched === b.watched && a.hasNote === b.hasNote && a.mobile === b.mobile);
 
 // ============================================================================
 // DETAIL PANEL
@@ -1180,6 +1180,10 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const [btError, setBtError] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
   const [aiError,  setAiError]  = useState(false);
+  // Debounce the ticker driving the chart + per-ticker backtest so arrow-scrubbing
+  // doesn't reload the TradingView iframe / refetch on every keystroke.
+  const [debTicker, setDebTicker] = useState(ticker);
+  useEffect(() => { const id = setTimeout(() => setDebTicker(ticker), 250); return () => clearTimeout(id); }, [ticker]);
 
   // Robust clipboard copy: modern API → fallback to hidden textarea → flag error
   const copyToClipboard = async (text) => {
@@ -1204,14 +1208,14 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   };
 
   useEffect(() => {
-    if (!ticker || !compact) return;
+    if (!debTicker || !compact) return;
     let ignore = false;
     setBtError(false);
-    fetchBacktestForTicker(ticker, timeframe)
+    fetchBacktestForTicker(debTicker, timeframe)
       .then(d => { if (!ignore) setTickerBacktest(d); })
       .catch(() => { if (!ignore) { setTickerBacktest([]); setBtError(true); } });
     return () => { ignore = true; };
-  }, [ticker, timeframe, compact]);
+  }, [debTicker, timeframe, compact]);
 
   const bx = row?.bx;
   const prev = row?.prev;
@@ -1497,7 +1501,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
       <div className="flex-1 min-h-[60vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
         <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
-        {ticker && <TVChart ticker={ticker} interval={interval} exchange={meta.ex} />}
+        {debTicker && <TVChart ticker={debTicker} interval={interval} exchange={meta.ex} />}
       </div>
       <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
     </div>
