@@ -27,19 +27,30 @@ const VIEWS = {
 
 async function sbFetch(path) {
   if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY env vars');
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Range: '0-9999' },
-  });
+  let r;
+  try {
+    r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Range: '0-9999' },
+    });
+  } catch (e) {
+    console.error(`Supabase network error on ${path}:`, e);
+    throw new Error('Network error — check your connection.');
+  }
   if (!r.ok) {
     const detail = await r.text().catch(() => '');
     console.error(`Supabase ${r.status} on ${path}: ${detail}`);
     throw new Error(`Data request failed (${r.status}). See console for details.`);
   }
-  return r.json();
+  try {
+    return await r.json();
+  } catch (e) {
+    console.error(`Supabase malformed response on ${path}:`, e);
+    throw new Error('Malformed response from server.');
+  }
 }
 
 async function fetchScan(timeframe) {
-  const rows = await sbFetch(`latest_scans_with_meta?timeframe=eq.${timeframe}&select=*&limit=10000`);
+  const rows = await sbFetch(`latest_scans_with_meta?timeframe=eq.${timeframe}&select=*&order=scan_date.desc&limit=10000`);
   if (!rows.length) return { date: null, data: [], meta: {} };
   const meta = {};
   const data = rows.map(r => {
@@ -63,7 +74,8 @@ async function fetchScan(timeframe) {
       biasOsc: r.bias_oscillator != null ? Number(r.bias_oscillator) : null,
       inZone: r.bias_in_zone,
     };
-    return { t: r.ticker, bx: Number(r.bx), prev: r.prev_bx != null ? Number(r.prev_bx) : null };
+    const bxv = Number(r.bx); const prevv = Number(r.prev_bx);
+    return { t: r.ticker, bx: Number.isFinite(bxv) ? bxv : 0, prev: r.prev_bx != null && Number.isFinite(prevv) ? prevv : null };
   });
   return { date: rows[0].scan_date, data, meta };
 }
@@ -116,15 +128,25 @@ const BIAS_BUCKETS = [
   { label: 'BEAR', v: 'bearish' },
 ];
 
-function TVChart({ ticker, interval }) {
+function tvExchangePrefix(ex) {
+  if (!ex) return '';
+  if (ex === 'NASDAQ') return 'NASDAQ:';
+  if (ex === 'NYSE' || ex === 'New York Stock Exchange') return 'NYSE:';
+  if (ex === 'AMEX' || ex === 'NYSE American' || ex === 'NYSE MKT') return 'AMEX:';
+  return '';
+}
+
+function TVChart({ ticker, interval, exchange }) {
+  const compact = typeof window !== 'undefined' && window.innerWidth < 1024;
+  const sym = `${tvExchangePrefix(exchange)}${ticker}`;
   const src =
     `https://s.tradingview.com/widgetembed/?frameElementId=tv_${ticker}` +
-    `&symbol=${encodeURIComponent(ticker)}&interval=${interval}` +
-    `&hidesidetoolbar=0&symboledit=1&saveimage=0` +
+    `&symbol=${encodeURIComponent(sym)}&interval=${interval}` +
+    `&hidesidetoolbar=${compact ? 1 : 0}&symboledit=1&saveimage=0` +
     `&toolbarbg=0a0a0b&theme=dark&style=1&timezone=Etc%2FUTC` +
     `&withdateranges=1&hideideas=1&hideideasbutton=1&locale=en`;
   return (
-    <iframe key={`${ticker}-${interval}`} src={src} title={`${ticker} ${interval}`}
+    <iframe key={`${sym}-${interval}`} src={src} title={`${ticker} ${interval}`}
       className="w-full h-full border-0" allow="fullscreen"/>
   );
 }
@@ -162,8 +184,9 @@ function BiasBadge({ direction, inZone, compact }) {
   const c = bull ? 'text-emerald-400' : 'text-red-400';
   const arrow = bull ? '▲' : '▼';
   return (
-    <span className={`inline-flex items-center gap-0.5 ${compact ? 'text-[8px]' : 'text-[9px]'} font-bold tracking-wider ${c}`}>
-      {arrow}{inZone ? '·Z' : ''}
+    <span aria-label={`${direction} bias${inZone ? ', in zone' : ''}`}
+      className={`inline-flex items-center gap-0.5 ${compact ? 'text-[8px]' : 'text-[9px]'} font-bold tracking-wider ${c}`}>
+      <span aria-hidden="true">{arrow}{inZone ? '·Z' : ''}</span>
     </span>
   );
 }
@@ -195,6 +218,7 @@ export default function App() {
   const [movers, setMovers] = useState([]);
   const [sectors, setSectors] = useState([]);
   const [backtestSummary, setBacktestSummary] = useState([]);
+  const [backtestError, setBacktestError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -243,7 +267,8 @@ export default function App() {
       }
       if (m.status === 'fulfilled')   setMovers(m.value);
       if (sec.status === 'fulfilled') setSectors(sec.value);
-      if (bt.status === 'fulfilled')  setBacktestSummary(bt.value);
+      if (bt.status === 'fulfilled') { setBacktestSummary(bt.value); setBacktestError(null); }
+      else setBacktestError(bt.reason?.message || 'Failed to load backtest data');
     }).finally(() => {
       if (seq === loadSeq.current) setLoading(false);
     });
@@ -284,7 +309,7 @@ export default function App() {
       if (watchOnly && !watchlist[r.t]) return false;
       if (q && !r.t.includes(q)) return false;
       if (r.mc < bucket.min || r.mc > bucket.max) return false;
-      if (r.px > 0 && (r.px < pMin || r.px > pMax)) return false;
+      if ((priceMin !== '' || priceMax !== '') && (!(r.px > 0) || r.px < pMin || r.px > pMax)) return false;
       if (r.vol < vMin) return false;
       if (earnMinDays != null && r.daysToEarn != null && r.daysToEarn >= 0 && r.daysToEarn < earnMinDays) return false;
       if (pct52Filter !== 0 && r.pct52 != null && (r.pct52 < pct52.min || r.pct52 > pct52.max)) return false;
@@ -349,7 +374,8 @@ export default function App() {
           }
         }
       } else {
-        const { bullishMoves, bearishMoves } = splitMovers(movers);
+        const visibleMovers = sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers;
+        const { bullishMoves, bearishMoves } = splitMovers(visibleMovers);
         const inBull = bullishMoves.findIndex(r => r.ticker === selected);
         const inBear = bearishMoves.findIndex(r => r.ticker === selected);
         let curList, curIdx;
@@ -376,7 +402,19 @@ export default function App() {
     };
     window.addEventListener('keydown', handler, { capture: true });
     return () => window.removeEventListener('keydown', handler, { capture: true });
-  }, [view, selected, scan.data, bullish, bearish, neutral, movers, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
+  }, [view, selected, scan.data, bullish, bearish, neutral, movers, sectorFilter, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
+
+  // Escape closes the topmost open overlay.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      if (mobileFiltersOpen) setMobileFiltersOpen(false);
+      else if (showAlerts) setShowAlerts(false);
+      else if (mobileDetailOpen) setMobileDetailOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileFiltersOpen, showAlerts, mobileDetailOpen]);
 
   const toggleWatch = (t) => setWatchlist(w => { const n={...w}; if(n[t])delete n[t]; else n[t]=Date.now(); return n; });
   const handleSelect = (t) => { setSelected(t); setMobileDetailOpen(true); };
@@ -427,7 +465,7 @@ export default function App() {
   }
 
   return (
-    <div className="w-full h-screen bg-zinc-950 text-zinc-100 overflow-hidden flex flex-col">
+    <div className="w-full h-screen bg-zinc-950 text-zinc-100 overflow-hidden flex flex-col mx-auto max-w-[1920px]">
       <style>{`
         .scanlines::before { content:''; position:absolute; inset:0; background: repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px); pointer-events:none; }
         .live-dot { animation: pulse 1.8s ease-in-out infinite; }
@@ -448,12 +486,14 @@ export default function App() {
         .no-tap-highlight { -webkit-tap-highlight-color: transparent; }
       `}</style>
 
-      <header className="flex-shrink-0 border-b border-zinc-800 bg-zinc-950 relative scanlines">
+      <div className="sr-only" role="status" aria-live="polite">{loading ? 'Loading…' : `${scan.data.length} tickers loaded`}</div>
+
+      <header className="flex-shrink-0 border-b border-zinc-800 bg-zinc-950 relative scanlines pt-[env(safe-area-inset-top)]">
         <div className="flex items-center justify-between px-3 md:px-4 h-11 md:h-12">
           <div className="flex items-center gap-3 md:gap-6 min-w-0">
             <div className="flex items-center gap-2 flex-shrink-0">
               <Radio className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400 live-dot" />
-              <span className="text-[10px] md:text-[11px] tracking-[0.25em] md:tracking-[0.3em] font-bold text-emerald-400">BX.TERMINAL</span>
+              <h1 className="text-[10px] md:text-[11px] tracking-[0.25em] md:tracking-[0.3em] font-bold text-emerald-400">BX.TERMINAL</h1>
               <span className="hidden md:inline text-[10px] text-zinc-600">v3.0 · LEAPS LENS</span>
             </div>
             <div className="hidden md:block h-4 w-px bg-zinc-800" />
@@ -468,10 +508,10 @@ export default function App() {
               <span className="text-zinc-500">NEU</span><span className="text-amber-400 font-bold">{neutral.length}</span>
               <span className="text-zinc-500">BULL</span><span className="text-emerald-400 font-bold">{bullish.length}</span>
             </div>
-            <button onClick={refresh} disabled={loading} className="flex items-center gap-1 px-2 py-1 border border-zinc-800 active:border-emerald-500/50 md:hover:border-emerald-500/50 text-[10px] tracking-wider disabled:opacity-50 no-tap-highlight">
+            <button onClick={refresh} disabled={loading} aria-label="Refresh scan" className="flex items-center gap-1 px-2 py-1 border border-zinc-800 active:border-emerald-500/50 md:hover:border-emerald-500/50 text-[10px] tracking-wider disabled:opacity-50 no-tap-highlight">
               <RefreshCw className={`w-3 h-3 text-emerald-400 ${loading ? 'spinning' : ''}`} />
             </button>
-            <button onClick={() => setShowAlerts(true)} className="flex items-center gap-1.5 px-2 py-1 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50 text-[10px] tracking-wider no-tap-highlight">
+            <button onClick={() => setShowAlerts(true)} aria-label="Open zone-transition alerts" className="flex items-center gap-1.5 px-2 py-1 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50 text-[10px] tracking-wider no-tap-highlight">
               <AlertCircle className="w-3 h-3 text-amber-400" />
               <span className="hidden md:inline text-zinc-300">ALERTS</span>
               <span className="text-amber-400 font-bold">{transitions.length}</span>
@@ -484,7 +524,7 @@ export default function App() {
             const active = tf === timeframe;
             return (
               <button key={tf} onClick={() => setTimeframe(tf)}
-                className={`flex-1 md:flex-none md:px-6 h-9 text-[11px] tracking-[0.3em] border-r border-zinc-800 transition-colors no-tap-highlight ${
+                className={`flex-1 md:flex-none md:px-6 h-11 md:h-9 text-[11px] tracking-[0.3em] border-r border-zinc-800 transition-colors no-tap-highlight ${
                   active ? 'bg-zinc-900 text-emerald-400 border-b-2 border-b-emerald-400' : 'text-zinc-500 active:text-zinc-200 md:hover:text-zinc-200 md:hover:bg-zinc-900/50'
                 }`}>{SCAN_META[tf].label}</button>
             );
@@ -500,7 +540,7 @@ export default function App() {
             const Icon = v.icon;
             return (
               <button key={k} onClick={() => setView(k)}
-                className={`flex-1 md:flex-none md:px-5 h-8 flex items-center justify-center gap-1.5 text-[10px] tracking-[0.25em] border-r border-zinc-800 transition-colors no-tap-highlight ${
+                className={`flex-1 md:flex-none md:px-5 h-11 md:h-8 flex items-center justify-center gap-1.5 text-[10px] tracking-[0.25em] border-r border-zinc-800 transition-colors no-tap-highlight ${
                   active ? 'bg-zinc-900 text-emerald-400 border-b-2 border-b-emerald-400' : 'text-zinc-500 active:text-zinc-200 md:hover:text-zinc-200'
                 }`}>
                 <Icon className="w-3 h-3" />{v.label}
@@ -524,11 +564,11 @@ export default function App() {
         )}
 
         {view !== 'sectors' && view !== 'backtest' && (
-          <div className="hidden md:flex items-center gap-3 px-4 h-10 border-t border-zinc-800 bg-zinc-950 overflow-x-auto">
+          <div className="hidden lg:flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-t border-zinc-800 bg-zinc-950">
             <div className="flex items-center gap-2 flex-shrink-0">
               <Search className="w-3 h-3 text-zinc-600" />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH TICKER…"
-                className="w-32 bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH TICKER…" aria-label="Search ticker"
+                className="w-32 bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 tracking-wider"/>
             </div>
             <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
               <span className="text-zinc-500 mr-1">MCAP</span>
@@ -584,13 +624,13 @@ export default function App() {
         )}
 
         {view !== 'sectors' && view !== 'backtest' && (
-          <div className="md:hidden flex items-center gap-2 px-3 h-10 border-t border-zinc-800 bg-zinc-950">
+          <div className="lg:hidden flex items-center gap-2 px-3 h-10 border-t border-zinc-800 bg-zinc-950">
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
               <Search className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH…"
-                className="w-full bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+              <input value={query} onChange={e => setQuery(e.target.value)} placeholder="SEARCH…" aria-label="Search ticker"
+                className="w-full bg-transparent border-b border-zinc-800 text-[11px] text-zinc-200 px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 tracking-wider"/>
             </div>
-            <button onClick={() => setWatchOnly(w => !w)}
+            <button onClick={() => setWatchOnly(w => !w)} aria-label="Show watchlist only" aria-pressed={watchOnly}
               className={`flex items-center gap-1 px-2 py-1 border text-[10px] no-tap-highlight ${watchOnly ? 'border-amber-500 text-amber-400' : 'border-zinc-800 text-zinc-500'}`}>
               <Star className={`w-3 h-3 ${watchOnly ? 'fill-amber-400' : ''}`} />
             </button>
@@ -628,7 +668,7 @@ export default function App() {
                 sortDir={zoneSort.bullish} onToggleSort={() => toggleZoneSort('bullish')}
                 selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
             </div>
-            <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
+            <aside className="w-[440px] xl:w-[520px] 2xl:w-[600px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
               {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
                 notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>}
             </aside>
@@ -644,7 +684,7 @@ export default function App() {
             <div className="px-3 h-6 flex items-center justify-between text-[8px] text-zinc-700 tracking-wider flex-shrink-0">
               <span>← SWIPE TO SWITCH ZONES →</span>
               <button onClick={() => toggleZoneSort(mobileZone)}
-                className="flex items-center gap-1 px-2 py-0.5 border border-zinc-800 text-zinc-400 no-tap-highlight active:border-emerald-500/50">
+                className="flex items-center gap-1 px-2 py-1.5 border border-zinc-800 text-zinc-400 no-tap-highlight active:border-emerald-500/50">
                 {zoneSort[mobileZone] === 'asc' ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
                 <span className="font-bold">SORT {zoneSort[mobileZone] === 'asc' ? '−→+' : '+→−'}</span>
               </button>
@@ -660,7 +700,7 @@ export default function App() {
                 {mobileRows.length === 0 ? (
                   <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
                 ) : mobileRows.map(r => (
-                  <RowItem key={r.t} r={r} zone={mobileZone} selected={false}
+                  <RowItem key={r.t} r={r} zone={mobileZone} selected={selected === r.t}
                     onSelect={() => handleSelect(r.t)} watched={!!watchlist[r.t]}
                     onToggleWatch={() => toggleWatch(r.t)} hasNote={!!notes[r.t]} mobile/>
                 ))}
@@ -680,10 +720,10 @@ export default function App() {
 
       {view === 'sectors' && <SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/>}
 
-      {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan}/>}
+      {view === 'backtest' && <BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan} error={backtestError} onRetry={refresh}/>}
 
       {mobileDetailOpen && selected && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up">
+        <div role="dialog" aria-modal="true" aria-label={`${selected} details`} className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up pt-[env(safe-area-inset-top)]">
           <div className="flex items-center gap-2 px-3 h-10 border-b border-zinc-800 flex-shrink-0 bg-zinc-950">
             <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-zinc-400 -ml-1 px-1 py-1.5 no-tap-highlight">
               <ChevronLeft className="w-4 h-4" />
@@ -694,7 +734,7 @@ export default function App() {
               <span className="text-[10px] tracking-[0.3em] text-emerald-400">{tvInterval}</span>
             </div>
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden pb-[env(safe-area-inset-bottom)]">
             <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
               notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>
           </div>
@@ -756,7 +796,7 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
           <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
             selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
         </div>
-        <aside className="w-[520px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
+        <aside className="w-[440px] xl:w-[520px] 2xl:w-[600px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
           {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
             notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
         </aside>
@@ -809,18 +849,20 @@ function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote
 
   return (
     <div onClick={onSelect} data-ticker={r.ticker}
+      role="button" tabIndex={0} aria-label={`${r.ticker} details`}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       className={`flex items-center px-3 h-11 border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
         selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900'
       }`}>
       <div className="w-14 flex items-center gap-1">
-        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }} className="p-0.5 -ml-0.5 no-tap-highlight">
+        <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }} aria-label={`${r.ticker} watchlist`} aria-pressed={watched} className="p-2 -m-1 no-tap-highlight">
           <Star className={`w-3 h-3 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
         </button>
         <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.ticker}</span>
       </div>
-      <div className="flex-1 text-right text-[10px] tabular-nums pr-2">
+      <div className="flex-1 min-w-0 text-right text-[10px] tabular-nums pr-2">
         <span className={zoneColor}>
-          {prevBx >= 0 ? '+' : ''}{prevBx.toFixed(1)}→<span className="font-bold">{curBx >= 0 ? '+' : ''}{curBx.toFixed(1)}</span>
+          {r.prev_bx == null ? '—' : `${prevBx >= 0 ? '+' : ''}${prevBx.toFixed(1)}`}→<span className="font-bold">{curBx >= 0 ? '+' : ''}{curBx.toFixed(1)}</span>
         </span>
       </div>
       <div className="w-14 text-right">
@@ -860,18 +902,21 @@ function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist,
             ? `${r.previous_zone[0].toUpperCase()}→${r.current_zone[0].toUpperCase()}` : null;
           return (
             <div key={r.ticker} onClick={() => onSelect(r.ticker)} data-ticker={r.ticker}
+              role="button" tabIndex={0} aria-label={`${r.ticker} details`}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.ticker); } }}
               className={`group flex items-center px-3 h-9 border-b border-zinc-900 cursor-pointer no-tap-highlight ${
                 isSelected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900 md:hover:bg-zinc-900/50'
               }`}>
               <div className="w-14 flex items-center gap-1">
                 <button onClick={(e) => { e.stopPropagation(); onToggleWatch(r.ticker); }}
-                  className={`${watchlist[r.ticker] ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} p-0.5`}>
+                  aria-label={`${r.ticker} watchlist`} aria-pressed={!!watchlist[r.ticker]}
+                  className={`${watchlist[r.ticker] ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'} p-2 -m-1`}>
                   <Star className={`w-2.5 h-2.5 ${watchlist[r.ticker] ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
                 </button>
                 <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.ticker}</span>
               </div>
               <span className={`w-14 text-right text-[10px] tabular-nums ${c.text}`}>
-                {r.prev_bx >= 0 ? '+' : ''}{Number(r.prev_bx).toFixed(1)}→<span className="font-bold">{r.bx >= 0 ? '+' : ''}{Number(r.bx).toFixed(1)}</span>
+                {r.prev_bx == null ? '—' : `${Number(r.prev_bx) >= 0 ? '+' : ''}${Number(r.prev_bx).toFixed(1)}`}→<span className="font-bold">{r.bx >= 0 ? '+' : ''}{Number(r.bx).toFixed(1)}</span>
               </span>
               <span className={`flex-1 text-right text-[11px] font-bold tabular-nums ${c.text}`}>
                 {Number(r.delta_bx) >= 0 ? '+' : ''}{Number(r.delta_bx).toFixed(2)}
@@ -901,13 +946,13 @@ function SectorsView({ sectors, timeframe, activeSector, onSelectSector }) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {sorted.map(s => {
-            const avg = Number(s.avg_bx);
+            const avg = Number.isFinite(Number(s.avg_bx)) ? Number(s.avg_bx) : 0;
             const positive = avg > 0;
             const color = avg > 2 ? 'emerald' : avg < -2 ? 'red' : 'amber';
             const c = color === 'emerald' ? { text: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500/40' }
                     : color === 'red'     ? { text: 'text-red-400',     bg: 'bg-red-500',     border: 'border-red-500/40' }
                     : { text: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500/40' };
-            const widthPct = (Math.abs(avg) / maxAbs) * 100;
+            const widthPct = maxAbs > 0 ? (Math.abs(avg) / maxAbs) * 100 : 0;
             const isActive = activeSector === s.sector;
             return (
               <button key={s.sector} onClick={() => onSelectSector && onSelectSector(s.sector)}
@@ -940,7 +985,7 @@ function SectorsView({ sectors, timeframe, activeSector, onSelectSector }) {
   );
 }
 
-function BacktestView({ summary, timeframe, scan }) {
+function BacktestView({ summary, timeframe, scan, error, onRetry }) {
   // Filter to most useful signal types (zone transitions involving entries/exits)
   const PRIORITY = [
     { key: 'neutral_to_bullish',  label: 'NEUTRAL → BULLISH', desc: 'Bullish breakout (long entry)',  color: 'emerald' },
@@ -963,6 +1008,14 @@ function BacktestView({ summary, timeframe, scan }) {
           <span className="text-[10px] text-zinc-500">historical performance of BX zone-transition signals across all {scan.data.length} tickers</span>
         </div>
 
+        {error && (
+          <div className="mb-3 px-3 py-2 border border-red-500/40 bg-red-500/5 text-[10px] text-red-400 tracking-wider flex items-center gap-2">
+            <AlertCircle className="w-3 h-3 flex-shrink-0" />
+            <span>Backtest data failed to load.</span>
+            <button onClick={onRetry} className="underline active:text-red-300 md:hover:text-red-300">Retry</button>
+          </div>
+        )}
+
         <div className="space-y-3">
           {rows.map(({ key, label, desc, color, data }) => {
             const c = color === 'emerald' ? { text: 'text-emerald-400', border: 'border-emerald-500/40', bg: 'bg-emerald-500/5' }
@@ -983,11 +1036,11 @@ function BacktestView({ summary, timeframe, scan }) {
                 </div>
                 {data && (
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px]">
-                    <Stat label={`AVG 5${hu}`}      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 20${hu}`}     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 60${hu}`}     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`AVG 120${hu}`}    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
-                    <Stat label={`WIN 60${hu}`}     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
+                    <Stat label={`AVG 5${hu}`}      value={data.avg_5d  != null ? `${Number(data.avg_5d) >= 0 ? '+' : ''}${Number(data.avg_5d).toFixed(2)}%`   : '—'} valueClass={data.avg_5d == null ? 'text-zinc-600' : Number(data.avg_5d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 20${hu}`}     value={data.avg_20d != null ? `${Number(data.avg_20d) >= 0 ? '+' : ''}${Number(data.avg_20d).toFixed(2)}%` : '—'} valueClass={data.avg_20d == null ? 'text-zinc-600' : Number(data.avg_20d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 60${hu}`}     value={data.avg_60d != null ? `${Number(data.avg_60d) >= 0 ? '+' : ''}${Number(data.avg_60d).toFixed(2)}%` : '—'} valueClass={data.avg_60d == null ? 'text-zinc-600' : Number(data.avg_60d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`AVG 120${hu}`}    value={data.avg_120d != null ? `${Number(data.avg_120d) >= 0 ? '+' : ''}${Number(data.avg_120d).toFixed(2)}%` : '—'} valueClass={data.avg_120d == null ? 'text-zinc-600' : Number(data.avg_120d) > 0 ? 'text-emerald-400' : 'text-red-400'}/>
+                    <Stat label={`WIN 60${hu}`}     value={data.win_rate_60d_pct != null ? `${data.win_rate_60d_pct}%` : '—'} valueClass={data.win_rate_60d_pct == null ? 'text-zinc-600' : Number(data.win_rate_60d_pct) > 55 ? 'text-emerald-400' : Number(data.win_rate_60d_pct) < 45 ? 'text-red-400' : 'text-amber-400'}/>
                   </div>
                 )}
               </div>
@@ -1076,12 +1129,15 @@ function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote,
   const tArrow = r.transition ? (r.transition.to === 'bullish' ? '↑' : r.transition.to === 'bearish' ? '↓' : '→') : null;
   return (
     <div onClick={onSelect} data-ticker={r.t}
+      role="button" tabIndex={0} aria-label={`${r.t} details`}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       className={`group flex items-center px-3 ${mobile ? 'h-11' : 'h-9'} border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
         selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900 md:hover:bg-zinc-900/50'
       }`}>
       <div className="w-14 flex items-center gap-1">
         <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }}
-          className={`${mobile || watched ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity p-0.5 -ml-0.5`}>
+          aria-label={`${r.t} watchlist`} aria-pressed={watched}
+          className={`${mobile || watched ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100'} transition-opacity p-2 -m-1`}>
           <Star className={`${mobile ? 'w-3 h-3' : 'w-2.5 h-2.5'} ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-600'}`} />
         </button>
         <span className="text-[11px] font-bold text-zinc-100 tracking-wider">{r.t}</span>
@@ -1091,7 +1147,7 @@ function RowItem({ r, zone, selected, onSelect, watched, onToggleWatch, hasNote,
           {r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}
         </span>
       </div>
-      <div className="flex-1 text-right text-[9px] tabular-nums flex items-center justify-end gap-1.5">
+      <div className="flex-1 min-w-0 text-right text-[9px] tabular-nums flex items-center justify-end gap-1.5">
         <AlignDots score={r.align} />
         <span className="text-zinc-500">${r.px ? r.px.toFixed(2) : '—'}</span>
         {r.pct52 != null && (
@@ -1121,6 +1177,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const setNote = (v) => setNotes(n => ({ ...n, [ticker]: v }));
   const watched = !!watchlist[ticker];
   const [tickerBacktest, setTickerBacktest] = useState([]);
+  const [btError, setBtError] = useState(false);
   const [aiCopied, setAiCopied] = useState(false);
   const [aiError,  setAiError]  = useState(false);
 
@@ -1148,7 +1205,12 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
 
   useEffect(() => {
     if (!ticker || !compact) return;
-    fetchBacktestForTicker(ticker, timeframe).then(setTickerBacktest).catch(() => setTickerBacktest([]));
+    let ignore = false;
+    setBtError(false);
+    fetchBacktestForTicker(ticker, timeframe)
+      .then(d => { if (!ignore) setTickerBacktest(d); })
+      .catch(() => { if (!ignore) { setTickerBacktest([]); setBtError(true); } });
+    return () => { ignore = true; };
   }, [ticker, timeframe, compact]);
 
   const bx = row?.bx;
@@ -1221,7 +1283,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
           title="Copy AI prompt to clipboard, paste into Claude.ai or ChatGPT">
           {aiError ? <><X className="w-3 h-3" />FAILED</> : aiCopied ? <><Check className="w-3 h-3" />COPIED</> : <><Sparkles className="w-3 h-3" />AI</>}
         </button>
-        <button onClick={() => onToggleWatch(ticker)} className="p-1.5 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50">
+        <button onClick={() => onToggleWatch(ticker)} aria-label={`${ticker} watchlist`} aria-pressed={watched} className="p-1.5 border border-zinc-800 active:border-amber-500/50 md:hover:border-amber-500/50">
           <Star className={`w-3.5 h-3.5 ${watched ? 'fill-amber-400 text-amber-400' : 'text-zinc-500'}`} />
         </button>
       </div>
@@ -1322,7 +1384,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
           </span>
         </div>
         <span className="text-[10px] tabular-nums text-zinc-500">
-          OSC: <span className={`${meta.biasOsc >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{meta.biasOsc >= 0 ? '+' : ''}{meta.biasOsc?.toFixed(2)}</span>
+          OSC: {meta.biasOsc == null ? <span className="text-zinc-600">—</span> : <span className={`${meta.biasOsc >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{meta.biasOsc >= 0 ? '+' : ''}{meta.biasOsc.toFixed(2)}</span>}
         </span>
       </div>
       <div className={`p-2 border ${meta.inZone ? 'border-cyan-500/50 bg-cyan-500/10' : 'border-zinc-800 bg-zinc-900/30'}`}>
@@ -1364,7 +1426,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   );
 
   const renderBacktestBody = () => tickerBacktest.length === 0 ? (
-    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">No historical signals for {ticker} on this timeframe yet.</div>
+    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">{btError ? 'Failed to load backtest — refresh to retry.' : `No historical signals for ${ticker} on this timeframe yet.`}</div>
   ) : (
     <div className="px-4 py-3">
       <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return at 60 {timeframe === 'daily' ? 'days' : timeframe === 'weekly' ? 'weeks' : 'months'}</div>
@@ -1391,7 +1453,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
 
   const renderNotesBody = () => (
     <textarea value={noteVal} onChange={(e) => setNote(e.target.value)}
-      placeholder={`LEAPS thesis · strike / expiry / entry trigger…`}
+      placeholder={`LEAPS thesis · strike / expiry / entry trigger…`} aria-label={`Trade notes for ${ticker}`}
       className="w-full h-28 bg-zinc-950 text-zinc-200 text-[11px] px-4 py-2 resize-none focus:outline-none focus:bg-zinc-900/50 block"/>
   );
 
@@ -1435,7 +1497,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
       <div className="flex-1 min-h-[60vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
         <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
-        {ticker && <TVChart ticker={ticker} interval={interval} />}
+        {ticker && <TVChart ticker={ticker} interval={interval} exchange={meta.ex} />}
       </div>
       <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
     </div>
@@ -1457,14 +1519,14 @@ function Stat({ label, value, valueClass = 'text-zinc-100' }) {
 
 function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, priceMax, setPriceMax, volMin, setVolMin, earnFilter, setEarnFilter, pct52Filter, setPct52Filter, biasFilter, setBiasFilter, inZoneOnly, setInZoneOnly, hasActiveFilters, onClear, onClose }) {
   return (
-    <div className="lg:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="Filters" className="lg:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
       <div className="w-full bg-zinc-950 border-t border-zinc-800 slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 h-12 border-b border-zinc-800 sticky top-0 bg-zinc-950">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-400" />
             <span className="text-[11px] tracking-[0.3em] font-bold text-emerald-400">FILTERS</span>
           </div>
-          <button onClick={onClose} className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
+          <button onClick={onClose} aria-label="Close" className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
         </div>
         <div className="p-4 space-y-5">
           <div>
@@ -1495,7 +1557,7 @@ function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, pri
           </div>
           <div>
             <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">EARNINGS · skip if within</div>
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
               {EARN_BUCKETS.map((b, i) => (
                 <button key={b.label} onClick={() => setEarnFilter(i)}
                   className={`px-2 py-2 border text-[10px] tracking-wider ${earnFilter === i ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-zinc-800 text-zinc-400'}`}>{b.label}</button>
@@ -1514,20 +1576,20 @@ function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, pri
           <div>
             <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">PRICE RANGE ($)</div>
             <div className="flex items-center gap-2">
-              <input value={priceMin} onChange={e => setPriceMin(e.target.value)} placeholder="MIN" type="number" inputMode="decimal"
-                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+              <input value={priceMin} onChange={e => setPriceMin(e.target.value)} placeholder="MIN" type="number" inputMode="decimal" aria-label="Minimum price"
+                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 tracking-wider"/>
               <span className="text-zinc-700">–</span>
-              <input value={priceMax} onChange={e => setPriceMax(e.target.value)} placeholder="MAX" type="number" inputMode="decimal"
-                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+              <input value={priceMax} onChange={e => setPriceMax(e.target.value)} placeholder="MAX" type="number" inputMode="decimal" aria-label="Maximum price"
+                className="flex-1 bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 tracking-wider"/>
             </div>
           </div>
           <div>
             <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">MIN VOLUME (M)</div>
-            <input value={volMin} onChange={e => setVolMin(e.target.value)} placeholder="0" type="number" inputMode="decimal"
-              className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:border-emerald-500 tracking-wider"/>
+            <input value={volMin} onChange={e => setVolMin(e.target.value)} placeholder="0" type="number" inputMode="decimal" aria-label="Minimum volume (millions)"
+              className="w-full bg-zinc-900 border border-zinc-800 text-zinc-200 text-[12px] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 tracking-wider"/>
           </div>
         </div>
-        <div className="flex gap-2 p-4 border-t border-zinc-800 sticky bottom-0 bg-zinc-950">
+        <div className="flex gap-2 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] border-t border-zinc-800 sticky bottom-0 bg-zinc-950">
           {hasActiveFilters && (
             <button onClick={onClear} className="flex-1 py-3 border border-zinc-800 text-[11px] text-red-400 tracking-[0.2em] active:bg-red-500/5">CLEAR</button>
           )}
@@ -1540,15 +1602,15 @@ function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, pri
 
 function AlertsDrawer({ transitions, onClose, onSelect }) {
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-start justify-end z-50" onClick={onClose}>
-      <div className="w-full md:w-[480px] h-full bg-zinc-950 border-l border-zinc-800 flex flex-col slide-right" onClick={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-label="Zone transitions" className="fixed inset-0 bg-black/60 flex items-start justify-end z-50" onClick={onClose}>
+      <div className="w-full md:w-[480px] h-full bg-zinc-950 border-l border-zinc-800 flex flex-col slide-right pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 h-12 border-b border-zinc-800 flex-shrink-0">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-400" />
             <span className="text-[11px] tracking-[0.3em] font-bold text-amber-400">ZONE.TRANSITIONS</span>
             <span className="text-[10px] text-zinc-500">({transitions.length})</span>
           </div>
-          <button onClick={onClose} className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
+          <button onClick={onClose} aria-label="Close" className="p-1.5"><X className="w-4 h-4 text-zinc-500" /></button>
         </div>
         <div className="flex-1 overflow-y-auto col-scroll">
           {transitions.length === 0 ? (
@@ -1557,6 +1619,8 @@ function AlertsDrawer({ transitions, onClose, onSelect }) {
             const toClass = r.zone === 'bullish' ? 'text-emerald-400' : r.zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
             return (
               <div key={r.t} onClick={() => onSelect(r.t)}
+                role="button" tabIndex={0} aria-label={`${r.t} details`}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(r.t); } }}
                 className="px-4 py-3 border-b border-zinc-900 active:bg-zinc-900 md:hover:bg-zinc-900 cursor-pointer">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[13px] font-bold tracking-wider text-zinc-100">{r.t}</span>
