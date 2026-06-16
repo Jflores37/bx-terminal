@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Star, StickyNote, X, Search, AlertCircle, ArrowRight, Radio,
   SlidersHorizontal, ChevronLeft, ChevronDown, ChevronUp, RefreshCw, TrendingUp, Activity,
@@ -696,15 +697,8 @@ export default function App() {
                 <span className="flex-1 text-right">PX · 52w · Bias</span>
                 <span className="w-12 text-right">Earn·Δ</span>
               </div>
-              <div className="flex-1 overflow-y-auto col-scroll fade-in" key={mobileZone}>
-                {mobileRows.length === 0 ? (
-                  <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
-                ) : mobileRows.map(r => (
-                  <RowItem key={r.t} r={r} zone={mobileZone} selected={selected === r.t}
-                    onSelect={() => handleSelect(r.t)} watched={!!watchlist[r.t]}
-                    onToggleWatch={() => toggleWatch(r.t)} hasNote={!!notes[r.t]} mobile/>
-                ))}
-              </div>
+              <VirtualRowList key={mobileZone} rows={mobileRows} selected={selected} onSelect={handleSelect}
+                watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} mobile/>
             </div>
           </div>
         </>
@@ -1110,14 +1104,47 @@ function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist,
         <span className="w-14">Ticker</span><span className="w-12 text-right">BX</span>
         <span className="flex-1 text-right">PX · 52w · Bias</span><span className="w-14 text-right">Earn·Δ</span>
       </div>
-      <div className="flex-1 overflow-y-auto col-scroll">
-        {rows.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
-        ) : rows.map(r => (
-          <RowItem key={r.t} r={r} zone={r.zone} selected={selected === r.t}
-            onSelect={() => onSelect(r.t)} watched={!!watchlist[r.t]}
-            onToggleWatch={() => onToggleWatch(r.t)} hasNote={!!notes[r.t]}/>
-        ))}
+      <VirtualRowList rows={rows} selected={selected} onSelect={onSelect}
+        watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+    </div>
+  );
+}
+
+// Virtualized row list — only the visible rows mount (a zone list can be ~600 rows).
+// Owns its own scroll, so selection scroll uses scrollToIndex (off-screen rows aren't in the DOM).
+function VirtualRowList({ rows, selected, onSelect, watchlist, onToggleWatch, notes, mobile }) {
+  const parentRef = useRef(null);
+  const virt = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => (mobile ? 45 : 37),
+    overscan: 12,
+  });
+  useEffect(() => {
+    const idx = rows.findIndex(r => r.t === selected);
+    if (idx >= 0) virt.scrollToIndex(idx, { align: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+  if (rows.length === 0) {
+    return (
+      <div ref={parentRef} className="flex-1 overflow-y-auto col-scroll">
+        <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
+      </div>
+    );
+  }
+  return (
+    <div ref={parentRef} className="flex-1 overflow-y-auto col-scroll">
+      <div style={{ height: virt.getTotalSize(), width: '100%', position: 'relative' }}>
+        {virt.getVirtualItems().map(vi => {
+          const r = rows[vi.index];
+          return (
+            <div key={r.t} style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}>
+              <RowItem r={r} zone={r.zone} selected={selected === r.t}
+                onSelect={() => onSelect(r.t)} watched={!!watchlist[r.t]}
+                onToggleWatch={() => onToggleWatch(r.t)} hasNote={!!notes[r.t]} mobile={mobile}/>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
