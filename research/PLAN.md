@@ -1,6 +1,7 @@
 # ES "compression → breakout" research plan
 
-Handoff notes from a cloud Claude Code session (2026-10-16). Goal: test whether the
+Handoff notes from a cloud Claude Code session (2026-10-16). Full research reports with all
+links: `research/notes/01-academic.md`, `02-practitioner.md`, `03-methodology.md`. Goal: test whether the
 pattern "ES consolidates tightly for a few minutes, then breaks out and runs" is a real,
 tradeable edge, and if so turn it into an indicator.
 
