@@ -5,7 +5,8 @@ import {
   SlidersHorizontal, ChevronLeft, ChevronDown, ChevronUp, RefreshCw, TrendingUp, Activity,
   Calendar, Target, Layers, BarChart3, Sparkles, Check, History
 } from 'lucide-react';
-import { SCAN_META, Stat } from './shared';
+import { SCAN_META, Stat, fmtEt } from './shared';
+import ErrorBoundary from './ErrorBoundary';
 
 // Non-default views are code-split: their JS only loads when the tab is opened.
 const SectorsView = React.lazy(() => import('./SectorsView'));
@@ -27,7 +28,8 @@ const VIEWS = {
   backtest: { label: 'BACKTEST', icon: History    },
 };
 
-async function sbFetch(path) {
+// optional: a 404 (view not deployed yet) is expected, so it isn't logged as an error.
+async function sbFetch(path, { optional = false } = {}) {
   if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY env vars');
   let r;
   try {
@@ -40,8 +42,10 @@ async function sbFetch(path) {
   }
   if (!r.ok) {
     const detail = await r.text().catch(() => '');
-    console.error(`Supabase ${r.status} on ${path}: ${detail}`);
-    throw new Error(`Data request failed (${r.status}). See console for details.`);
+    if (!(optional && r.status === 404)) console.error(`Supabase ${r.status} on ${path}: ${detail}`);
+    const err = new Error(`Data request failed (${r.status}). See console for details.`);
+    err.status = r.status;
+    throw err;
   }
   try {
     return await r.json();
@@ -53,20 +57,35 @@ async function sbFetch(path) {
 
 async function fetchScan(timeframe) {
   const rows = await sbFetch(`latest_scans_with_meta?timeframe=eq.${timeframe}&select=*&order=scan_date.desc&limit=10000`);
-  if (!rows.length) return { date: null, data: [], meta: {} };
+  if (!rows.length) return { tf: timeframe, date: null, data: [], meta: {}, staleCount: 0 };
+  // The view keeps each ticker's newest row inside a lookback window, so rows can be older than
+  // the timeframe's latest scan. Prefer the view's is_stale/max_scan_date (C10); until that DB
+  // change ships, derive the same thing from the per-row scan_date (rows come newest first).
+  const maxDate = rows[0].max_scan_date || rows[0].scan_date;
+  let staleCount = 0;
   const meta = {};
   const data = rows.map(r => {
+    const stale = r.is_stale != null ? r.is_stale === true : (r.scan_date != null && r.scan_date < maxDate);
+    if (stale) staleCount++;
+    // Earnings: a stored date that already passed (or none at all) means the next report is UNKNOWN.
+    const dte = r.days_to_earnings != null ? Number(r.days_to_earnings) : null;
+    const earnStale = r.earnings_stale === true || (dte != null && dte < 0);
+    const mcv = r.market_cap_billions != null ? Number(r.market_cap_billions) : NaN;
+    const pctv = r.pct_of_52w_range != null ? Number(r.pct_of_52w_range) : NaN;
     meta[r.ticker] = {
+      stale, scanDate: r.scan_date || null,
       ex: r.exchange || null,
-      mc: r.market_cap_billions ? Number(r.market_cap_billions) : 0,
+      mc: Number.isFinite(mcv) && mcv > 0 ? mcv : null,
       px: r.price ? Number(r.price) : 0,
       vol: r.avg_volume_millions ? Number(r.avg_volume_millions) : 0,
       sec: r.sector || '—', ind: r.industry || '—',
       earn: r.next_earnings_date || null,
-      daysToEarn: r.days_to_earnings != null ? Number(r.days_to_earnings) : null,
+      daysToEarn: earnStale ? null : dte,
+      earnUnknown: dte == null || earnStale,
       hi52: r.fifty_two_week_high ? Number(r.fifty_two_week_high) : null,
       lo52: r.fifty_two_week_low ? Number(r.fifty_two_week_low) : null,
-      pct52: r.pct_of_52w_range != null ? Number(r.pct_of_52w_range) : null,
+      // price and the stored 52w hi/lo refresh at different times, so the raw % can leave 0-100.
+      pct52: Number.isFinite(pctv) ? Math.min(100, Math.max(0, pctv)) : null,
       align: r.alignment_score != null ? Number(r.alignment_score) : null,
       composite: r.composite_bx != null ? Number(r.composite_bx) : null,
       daily: r.daily_bx != null ? Number(r.daily_bx) : null,
@@ -79,11 +98,17 @@ async function fetchScan(timeframe) {
     const bxv = Number(r.bx); const prevv = Number(r.prev_bx);
     return { t: r.ticker, bx: Number.isFinite(bxv) ? bxv : 0, prev: r.prev_bx != null && Number.isFinite(prevv) ? prevv : null };
   });
-  return { date: rows[0].scan_date, data, meta };
+  return { tf: timeframe, date: maxDate, data, meta, staleCount };
 }
 
-async function fetchMovers(timeframe) {
-  return sbFetch(`bx_movers?timeframe=eq.${timeframe}&select=*&order=abs_delta.desc&limit=100`);
+// One query per side (and per sector when filtered) so each column gets its own top movers.
+// Fetches a little more than shown so stale rows can be dropped client-side before the cut.
+const MOVERS_SHOWN = 25;
+async function fetchMovers(timeframe, sector) {
+  const base = `bx_movers?timeframe=eq.${timeframe}${sector ? `&sector=eq.${encodeURIComponent(sector)}` : ''}` +
+    `&select=*&order=abs_delta.desc&limit=${MOVERS_SHOWN + 15}`;
+  const [bull, bear] = await Promise.all([sbFetch(`${base}&delta_bx=gt.0`), sbFetch(`${base}&delta_bx=lt.0`)]);
+  return { bull, bear };
 }
 
 async function fetchSectors(timeframe) {
@@ -94,20 +119,33 @@ async function fetchBacktestSummary(timeframe) {
   return sbFetch(`bx_backtest_summary?timeframe=eq.${timeframe}&select=*`);
 }
 
+// Optional views (may not exist yet: DB and SPA deploy separately) — failures resolve to "none".
+async function fetchBaselineSummary(timeframe) {
+  try { const rows = await sbFetch(`bx_backtest_baseline_summary?timeframe=eq.${timeframe}&select=*`, { optional: true }); return rows[0] || null; }
+  catch { return null; }
+}
+
+async function fetchHealth() {
+  try { const rows = await sbFetch('pipeline_health?select=*', { optional: true }); return Array.isArray(rows) ? rows : []; }
+  catch (e) {
+    // 404 = view not deployed yet, and network errors already show in the scan banner: no strip.
+    // Any other HTTP failure (500, statement timeout) must not read as "all green".
+    if (!e?.status || e.status === 404) return [];
+    return [{ check_name: 'pipeline_health', timeframe: null, status: 'warn', detail: `health check unavailable (HTTP ${e.status})`, as_of: null }];
+  }
+}
+
 async function fetchBacktestForTicker(ticker, timeframe) {
-  return sbFetch(`bx_backtest_results?ticker=eq.${ticker}&timeframe=eq.${timeframe}&select=*&order=signal_date.desc&limit=20`);
+  return sbFetch(`bx_backtest_results?ticker=eq.${encodeURIComponent(ticker)}&timeframe=eq.${timeframe}&select=*&order=signal_date.desc&limit=20`);
 }
 
 function zoneOf(bx){ if(bx<-2) return 'bearish'; if(bx>2) return 'bullish'; return 'neutral'; }
 function transitionOf(cur,prev){ if(prev==null) return null; const a=zoneOf(prev),b=zoneOf(cur); return a===b?null:{from:a,to:b}; }
 
-function splitMovers(movers) {
-  return {
-    bullishMoves: movers.filter(m => Number(m.delta_bx) > 0).slice(0, 25),
-    bearishMoves: movers.filter(m => Number(m.delta_bx) < 0).slice(0, 25),
-  };
-}
+const EMPTY_SCAN = { tf: null, date: null, data: [], meta: {}, staleCount: 0 };
+const DESKTOP_MQ = '(min-width: 1024px)'; // Tailwind lg
 
+// Ranges are half-open [min, max); a missing market cap only matches ALL.
 const MC_BUCKETS = [
   { label: 'ALL', min: 0, max: Infinity }, { label: 'MEGA', min: 200, max: Infinity },
   { label: 'LARGE', min: 10, max: 200 }, { label: 'MID', min: 2, max: 10 }, { label: 'SMALL', min: 0, max: 2 },
@@ -119,6 +157,7 @@ const EARN_BUCKETS = [
   { label: '>21d', days: 21 }, { label: '>30d', days: 30 },
 ];
 
+// pct52 is clamped to 0-100; ranges are [min, max) except NEAR HIGHS, which includes 100.
 const PCT52_BUCKETS = [
   { label: 'ANY', min: 0, max: 100 }, { label: 'NEAR HIGHS', min: 70, max: 100 },
   { label: 'MID-RANGE', min: 30, max: 70 }, { label: 'NEAR LOWS', min: 0, max: 30 },
@@ -135,14 +174,16 @@ function tvExchangePrefix(ex) {
   if (ex === 'NASDAQ') return 'NASDAQ:';
   if (ex === 'NYSE' || ex === 'New York Stock Exchange') return 'NYSE:';
   if (ex === 'AMEX' || ex === 'NYSE American' || ex === 'NYSE MKT') return 'AMEX:';
+  if (ex === 'BATS') return 'BATS:';
   return '';
 }
 
 function TVChart({ ticker, interval, exchange }) {
   const compact = typeof window !== 'undefined' && window.innerWidth < 1024;
-  const sym = `${tvExchangePrefix(exchange)}${ticker}`;
+  // Class shares are stored Yahoo-style (BRK-B); TradingView wants a dot (BRK.B).
+  const sym = `${tvExchangePrefix(exchange)}${ticker.replace(/-([A-Z])$/, '.$1')}`;
   const src =
-    `https://s.tradingview.com/widgetembed/?frameElementId=tv_${ticker}` +
+    `https://s.tradingview.com/widgetembed/?frameElementId=tv_${encodeURIComponent(ticker)}` +
     `&symbol=${encodeURIComponent(sym)}&interval=${interval}` +
     `&hidesidetoolbar=${compact ? 1 : 0}&symboledit=1&saveimage=0` +
     `&toolbarbg=0a0a0b&theme=dark&style=1&timezone=Etc%2FUTC` +
@@ -158,9 +199,14 @@ function saveLocal(key, value) { try { localStorage.setItem(key, JSON.stringify(
 
 function earnLevel(d) { if (d == null || d < 0) return null; if (d < 7) return 'imminent'; if (d <= 14) return 'soon'; return null; }
 
-function EarnBadge({ daysToEarn, mobile }) {
+function EarnBadge({ daysToEarn, unknown, mobile }) {
   const level = earnLevel(daysToEarn);
-  if (!level) return null;
+  if (!level) {
+    return unknown ? (
+      <span title="Next earnings date unknown (none on file, or the stored date has passed)"
+        className={`${mobile ? 'text-[9px]' : 'text-[8px]'} font-bold tracking-wider text-zinc-500`}>E?</span>
+    ) : null;
+  }
   const imm = level === 'imminent';
   return (
     <span className={`inline-flex items-center gap-0.5 ${mobile ? 'text-[9px]' : 'text-[8px]'} font-bold tracking-wider ${imm ? 'text-red-400' : 'text-amber-400'}`}>
@@ -213,14 +259,56 @@ function CollapsibleSection({ title, icon: Icon, summary, defaultOpen = false, c
   );
 }
 
+// Compact pipeline_health strip: hidden when every check is ok or the view isn't deployed yet.
+function HealthBanner({ checks }) {
+  const [open, setOpen] = useState(false);
+  const bad = checks.filter(c => c && c.status && c.status !== 'ok')
+    .sort((a, b) => (a.status === 'error' ? 0 : 1) - (b.status === 'error' ? 0 : 1));
+  if (!bad.length) return null;
+  const nErr = bad.filter(c => c.status === 'error').length;
+  const nWarn = bad.length - nErr;
+  const label = (c) => `${c.check_name || 'check'}${c.timeframe ? ` · ${c.timeframe}` : ''}`;
+  const tone = nErr ? 'text-red-400 border-red-500/40 bg-red-500/5' : 'text-amber-400 border-amber-500/40 bg-amber-500/5';
+  return (
+    <div className={`flex-shrink-0 border-b ${tone}`}>
+      <button onClick={() => setOpen(o => !o)} aria-expanded={open} aria-label="Pipeline health details"
+        className="w-full flex items-center gap-2 px-3 md:px-4 h-8 text-[10px] tracking-wider no-tap-highlight min-w-0 text-left">
+        <AlertCircle className="w-3 h-3 flex-shrink-0" />
+        <span className="font-bold tracking-[0.25em] flex-shrink-0">PIPELINE</span>
+        <span className="font-bold flex-shrink-0">{[nErr && `${nErr} ERR`, nWarn && `${nWarn} WARN`].filter(Boolean).join(' · ')}</span>
+        <span className="truncate text-zinc-500 min-w-0">{label(bad[0])}{bad[0].detail ? ` — ${bad[0].detail}` : ''}</span>
+        <ChevronDown className={`w-3 h-3 ml-auto flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="px-3 md:px-4 pb-2 space-y-1 max-h-48 overflow-y-auto col-scroll">
+          {bad.map((c, i) => (
+            <div key={`${c.check_name}-${c.timeframe}-${i}`} className="flex items-baseline gap-2 text-[10px] min-w-0">
+              <span className={`flex-shrink-0 font-bold ${c.status === 'error' ? 'text-red-400' : 'text-amber-400'}`}>{String(c.status).toUpperCase()}</span>
+              <span className="flex-shrink-0 text-zinc-300">{label(c)}</span>
+              <span className="text-zinc-500 min-w-0 break-words">{c.detail}{fmtEt(c.as_of) ? ` · as of ${fmtEt(c.as_of)}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [timeframe, setTimeframe] = useState('weekly');
   const [view, setView] = useState('zones');
-  const [scan, setScan] = useState({ date: null, data: [], meta: {} });
-  const [movers, setMovers] = useState([]);
-  const [sectors, setSectors] = useState([]);
-  const [backtestSummary, setBacktestSummary] = useState([]);
+  // Every data slice is tagged with the timeframe (and sector) it was loaded for, so a failed or
+  // in-flight load never shows another timeframe's data under the current label.
+  const [scanState, setScan] = useState(EMPTY_SCAN);
+  const [moversState, setMoversState] = useState({ key: null, bull: [], bear: [] });
+  const [moversError, setMoversError] = useState(null);
+  const [sectorsState, setSectors] = useState({ tf: null, rows: [] });
+  const [sectorsError, setSectorsError] = useState(null);
+  const [backtestState, setBacktestSummary] = useState({ tf: null, rows: [] });
+  const [baselineState, setBaseline] = useState({ tf: null, row: null });
   const [backtestError, setBacktestError] = useState(null);
+  const [health, setHealth] = useState([]);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
@@ -256,21 +344,28 @@ export default function App() {
   const loadData = (tf) => {
     const seq = ++loadSeq.current;
     setLoading(true);
+    // Errors belong to the load that produced them: never show a previous timeframe's failure
+    // under the new label while this load is in flight.
+    setError(null); setSectorsError(null); setBacktestError(null);
     return Promise.allSettled([
-      fetchScan(tf), fetchMovers(tf), fetchSectors(tf), fetchBacktestSummary(tf),
-    ]).then(([s, m, sec, bt]) => {
+      fetchScan(tf), fetchSectors(tf), fetchBacktestSummary(tf), fetchBaselineSummary(tf), fetchHealth(),
+    ]).then(([s, sec, bt, base, hl]) => {
       if (seq !== loadSeq.current) return; // a newer load (or unmount) superseded this one
       if (s.status === 'fulfilled') {
         setScan(s.value);
         setError(null);
-        if (s.value.data.length) setSelected(cur => cur ?? s.value.data[0].t);
+        const rows = s.value.data;
+        // Keep the selection only if the ticker exists in this timeframe's scan.
+        if (rows.length) setSelected(cur => (cur && rows.some(r => r.t === cur)) ? cur : rows[0].t);
       } else {
         setError(s.reason?.message || String(s.reason));
       }
-      if (m.status === 'fulfilled')   setMovers(m.value);
-      if (sec.status === 'fulfilled') setSectors(sec.value);
-      if (bt.status === 'fulfilled') { setBacktestSummary(bt.value); setBacktestError(null); }
+      if (sec.status === 'fulfilled') { setSectors({ tf, rows: sec.value }); setSectorsError(null); }
+      else setSectorsError(sec.reason?.message || String(sec.reason));
+      if (bt.status === 'fulfilled') { setBacktestSummary({ tf, rows: bt.value }); setBacktestError(null); }
       else setBacktestError(bt.reason?.message || 'Failed to load backtest data');
+      setBaseline({ tf, row: base.status === 'fulfilled' ? base.value : null });
+      setHealth(hl.status === 'fulfilled' ? hl.value : []);
     }).finally(() => {
       if (seq === loadSeq.current) setLoading(false);
     });
@@ -281,24 +376,69 @@ export default function App() {
     return () => { loadSeq.current++; };
   }, [timeframe]);
 
+  // Movers load on their own so the sector filter can be pushed into the query (per-sector top movers).
+  const moversKey = `${timeframe}|${sectorFilter || ''}`;
+  const moversSeq = useRef(0);
+  useEffect(() => {
+    const seq = ++moversSeq.current;
+    setMoversError(null);
+    fetchMovers(timeframe, sectorFilter)
+      .then(v => { if (seq === moversSeq.current) { setMoversState({ key: moversKey, ...v }); setMoversError(null); } })
+      .catch(e => { if (seq === moversSeq.current) setMoversError(e?.message || String(e)); });
+    return () => { moversSeq.current++; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moversKey, reloadNonce]);
+
+  // Mount only ONE DetailPanel (desktop aside vs mobile dialog): each one loads a TradingView
+  // iframe and fetches the ticker's backtest. Growing to desktop also closes the mobile dialog
+  // (it would otherwise stay mounted behind lg:hidden and block keyboard nav).
+  const [isDesktop, setIsDesktop] = useState(() => typeof window === 'undefined' || !window.matchMedia || window.matchMedia(DESKTOP_MQ).matches);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia(DESKTOP_MQ);
+    const onChange = (e) => { setIsDesktop(e.matches); if (e.matches) setMobileDetailOpen(false); };
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+
   useEffect(() => { saveLocal('bx_watchlist', watchlist); }, [watchlist]);
   useEffect(() => { saveLocal('bx_notes', notes); }, [notes]);
 
   // Auto-scroll selected row into view
   useEffect(() => {
     if (!selected) return;
-    const els = document.querySelectorAll(`[data-ticker="${selected}"]`);
+    const els = document.querySelectorAll(`[data-ticker="${CSS.escape(selected)}"]`);
     for (const el of els) { if (el.offsetParent !== null) { el.scrollIntoView({ block: 'nearest' }); break; } }
   }, [selected]);
 
   const tvInterval = SCAN_META[timeframe].tvInterval;
 
+  // Only data loaded for the CURRENT timeframe is ever rendered.
+  const scan = scanState.tf === timeframe ? scanState : EMPTY_SCAN;
+  const sectors = sectorsState.tf === timeframe ? sectorsState.rows : [];
+  const backtestSummary = backtestState.tf === timeframe ? backtestState.rows : [];
+  const baseline = baselineState.tf === timeframe ? baselineState.row : null;
+  const boardEmptyText = scanState.tf === timeframe ? undefined : loading ? 'LOADING…' : error ? 'NO DATA — LOAD FAILED' : undefined;
+  const moversEmptyText = moversState.key === moversKey ? undefined : moversError ? 'NO DATA — LOAD FAILED' : 'LOADING…';
+
   const decorated = useMemo(() => scan.data.map(row => {
     const m = scan.meta[row.t] || {};
-    return { ...row, ...m, zone: zoneOf(row.bx), transition: transitionOf(row.bx, row.prev) };
+    // A stale row's bx/prev describe an older bar, so its "transition" is not news: no ALERT.
+    return { ...row, ...m, zone: zoneOf(row.bx), transition: m.stale ? null : transitionOf(row.bx, row.prev) };
   }), [scan]);
 
-  const filtered = useMemo(() => {
+  // Movers: only fresh deltas (row scan_date at the latest scan when the view exposes it,
+  // else the ticker's scan row is not stale), capped per side after filtering.
+  const moverSides = useMemo(() => {
+    if (moversState.key !== moversKey) return { bullishMoves: [], bearishMoves: [] };
+    const fresh = (m) => m.scan_date != null ? (!scan.date || m.scan_date >= scan.date) : !scan.meta[m.ticker]?.stale;
+    return {
+      bullishMoves: moversState.bull.filter(fresh).slice(0, MOVERS_SHOWN),
+      bearishMoves: moversState.bear.filter(fresh).slice(0, MOVERS_SHOWN),
+    };
+  }, [moversState, moversKey, scan]);
+  // biasNA = rows that pass every other filter but are hidden only because they have no bias.
+  const { filtered, biasNA } = useMemo(() => {
     const bucket = MC_BUCKETS[mcBucket];
     const pMin = priceMin === '' ? -Infinity : parseFloat(priceMin);
     const pMax = priceMax === '' ? Infinity : parseFloat(priceMax);
@@ -307,19 +447,23 @@ export default function App() {
     const pct52 = PCT52_BUCKETS[pct52Filter];
     const biasReq = BIAS_BUCKETS[biasFilter].v;
     const q = query.trim().toUpperCase();
-    return decorated.filter(r => {
+    let biasNA = 0;
+    const out = decorated.filter(r => {
       if (watchOnly && !watchlist[r.t]) return false;
       if (q && !r.t.includes(q)) return false;
-      if (r.mc < bucket.min || r.mc > bucket.max) return false;
+      if (mcBucket !== 0 && (r.mc == null || r.mc < bucket.min || r.mc >= bucket.max)) return false;
       if ((priceMin !== '' || priceMax !== '') && (!(r.px > 0) || r.px < pMin || r.px > pMax)) return false;
       if (r.vol < vMin) return false;
-      if (earnMinDays != null && r.daysToEarn != null && r.daysToEarn >= 0 && r.daysToEarn < earnMinDays) return false;
-      if (pct52Filter !== 0 && r.pct52 != null && (r.pct52 < pct52.min || r.pct52 > pct52.max)) return false;
+      // Unknown next earnings (none on file / stored date passed) is never treated as "clear".
+      if (earnMinDays != null && (r.earnUnknown || r.daysToEarn < earnMinDays)) return false;
+      if (pct52Filter !== 0 && (r.pct52 == null || r.pct52 < pct52.min || (pct52.max < 100 && r.pct52 >= pct52.max))) return false;
       if (sectorFilter && r.sec !== sectorFilter) return false;
+      if (!r.biasDir && (biasReq || (inZoneOnly && !r.inZone))) { biasNA++; return false; }
       if (biasReq && r.biasDir !== biasReq) return false;
       if (inZoneOnly && !r.inZone) return false;
       return true;
     });
+    return { filtered: out, biasNA };
   }, [decorated, mcBucket, priceMin, priceMax, volMin, watchOnly, watchlist, query, earnFilter, pct52Filter, sectorFilter, biasFilter, inZoneOnly]);
 
   const sortByBx = (arr, dir) =>
@@ -376,8 +520,7 @@ export default function App() {
           }
         }
       } else {
-        const visibleMovers = sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers;
-        const { bullishMoves, bearishMoves } = splitMovers(visibleMovers);
+        const { bullishMoves, bearishMoves } = moverSides;
         const inBull = bullishMoves.findIndex(r => r.ticker === selected);
         const inBear = bearishMoves.findIndex(r => r.ticker === selected);
         let curList, curIdx;
@@ -404,7 +547,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler, { capture: true });
     return () => window.removeEventListener('keydown', handler, { capture: true });
-  }, [view, selected, scan.data, bullish, bearish, neutral, movers, sectorFilter, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
+  }, [view, selected, scan.data, bullish, bearish, neutral, moverSides, mobileFiltersOpen, showAlerts, mobileDetailOpen]);
 
   // Escape closes the topmost open overlay.
   useEffect(() => {
@@ -419,7 +562,11 @@ export default function App() {
   }, [mobileFiltersOpen, showAlerts, mobileDetailOpen]);
 
   const toggleWatch = (t) => setWatchlist(w => { const n={...w}; if(n[t])delete n[t]; else n[t]=Date.now(); return n; });
-  const handleSelect = (t) => { setSelected(t); setMobileDetailOpen(true); };
+  // The full-screen detail dialog is mobile-only; on desktop the aside already shows the ticker.
+  const handleSelect = (t) => {
+    setSelected(t);
+    if (!isDesktop) setMobileDetailOpen(true);
+  };
   const selectSector = (sector) => {
     if (sectorFilter === sector) setSectorFilter(null);
     else { setSectorFilter(sector); setView('zones'); }
@@ -429,7 +576,9 @@ export default function App() {
     setMcBucket(0); setEarnFilter(0); setPct52Filter(0);
     setSectorFilter(null); setBiasFilter(0); setInZoneOnly(false); setWatchOnly(false);
   };
-  const refresh = () => loadData(timeframe);
+  const refresh = () => { loadData(timeframe); setReloadNonce(n => n + 1); };
+  const failedParts = [error && 'SCAN', moversError && 'MOVERS', sectorsError && 'SECTORS'].filter(Boolean);
+  const firstFailure = error || moversError || sectorsError;
 
   const selectedMeta = scan.meta[selected] || {};
   const selectedRow = decorated.find(r => r.t === selected);
@@ -452,10 +601,10 @@ export default function App() {
     if (dx > 0 && cur > 0) setMobileZone(order[cur - 1]);
   };
 
-  if (loading && scan.data.length === 0) {
+  if (loading && !scanState.tf) {
     return <div className="w-full h-screen bg-zinc-950 text-emerald-400 flex items-center justify-center"><span className="animate-pulse text-xs tracking-[0.3em]">LOADING LEAPS LENS…</span></div>;
   }
-  if (error && scan.data.length === 0) {
+  if (error && !scanState.tf) {
     return (
       <div className="w-full h-screen bg-zinc-950 text-red-400 flex flex-col items-center justify-center gap-3 px-6 text-center">
         <AlertCircle className="w-6 h-6" />
@@ -498,9 +647,18 @@ export default function App() {
               <h1 className="text-[10px] md:text-[11px] tracking-[0.25em] md:tracking-[0.3em] font-bold text-emerald-400">BX.TERMINAL</h1>
               <span className="hidden md:inline text-[10px] text-zinc-600">v3.0 · LEAPS LENS</span>
             </div>
+            <div className="md:hidden flex items-center gap-1.5 text-[9px] text-zinc-500 tabular-nums min-w-0 truncate">
+              {timeframe !== 'daily' && <span>{timeframe === 'weekly' ? 'WK' : 'MO'}</span>}
+              <span className="text-zinc-300" title={timeframe === 'daily' ? undefined : `${timeframe === 'weekly' ? 'Week' : 'Month'} ending ${scan.date || '—'} (its last trading day)`}>{scan.date ? scan.date.slice(5).replace('-', '/') : '—'}</span>
+              {scan.staleCount > 0 && <span className="text-amber-400" title={`${scan.staleCount} rows are older than the ${scan.date} scan`}>{scan.staleCount} STALE</span>}
+            </div>
             <div className="hidden md:block h-4 w-px bg-zinc-800" />
             <div className="hidden md:flex items-center gap-1 text-[10px] text-zinc-500">
-              <span>SCAN:</span><span className="text-zinc-300">{scan.date || '—'}</span>
+              {/* Weekly/monthly scan_date = the period's last trading day, i.e. the completed bar's end. */}
+              <span>{timeframe === 'daily' ? 'SCAN:' : timeframe === 'weekly' ? 'WEEK ENDING:' : 'MONTH ENDING:'}</span><span className="text-zinc-300">{scan.date || '—'}</span>
+              {scan.staleCount > 0 && (
+                <span className="text-amber-400 ml-1" title={`${scan.staleCount} rows were last scanned before ${scan.date}; they are dimmed and left out of ALERTS`}>· {scan.staleCount} STALE</span>
+              )}
               <span className="ml-3">TICKERS:</span><span className="text-zinc-300">{scan.data.length}</span>
             </div>
           </div>
@@ -595,6 +753,9 @@ export default function App() {
                 className={`px-2 py-0.5 border tracking-wider ${inZoneOnly ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'}`}>
                 IN-ZONE
               </button>
+              {(biasFilter !== 0 || inZoneOnly) && biasNA > 0 && (
+                <span className="text-zinc-600 tracking-wider" title="These tickers have too little history for Market Bias and are hidden while a bias filter is on">{biasNA} NO-BIAS HIDDEN</span>
+              )}
             </div>
             <div className="flex items-center gap-1 text-[10px] flex-shrink-0">
               <span className="text-zinc-500">EARN</span>
@@ -645,6 +806,17 @@ export default function App() {
         )}
       </header>
 
+      <HealthBanner checks={health} />
+
+      {failedParts.length > 0 && (
+        <div role="alert" className="flex-shrink-0 flex items-center gap-2 px-3 md:px-4 h-8 border-b border-red-500/40 bg-red-500/5 text-[10px] text-red-400 tracking-wider min-w-0">
+          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+          <span className="font-bold flex-shrink-0">{SCAN_META[timeframe].label} {failedParts.join(' · ')} FAILED</span>
+          <span className="truncate text-zinc-500 min-w-0">{firstFailure}</span>
+          <button onClick={refresh} disabled={loading} className="ml-auto flex-shrink-0 underline active:text-red-300 md:hover:text-red-300 disabled:opacity-50">RETRY</button>
+        </div>
+      )}
+
       {sectorFilter && (
         <div className="flex-shrink-0 flex items-center gap-2 px-3 md:px-4 h-8 bg-emerald-500/10 border-b border-emerald-500/40">
           <Layers className="w-3 h-3 text-emerald-400 flex-shrink-0" />
@@ -662,16 +834,16 @@ export default function App() {
             <div className="flex-1 grid grid-cols-3 overflow-hidden">
               <ZoneColumn label="BEARISH" range="[−10 · −2)" accent="red" rows={bearish}
                 sortDir={zoneSort.bearish} onToggleSort={() => toggleZoneSort('bearish')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
+                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} emptyText={boardEmptyText}/>
               <ZoneColumn label="NEUTRAL" range="[−2 · +2]" accent="amber" rows={neutral}
                 sortDir={zoneSort.neutral} onToggleSort={() => toggleZoneSort('neutral')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
+                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} emptyText={boardEmptyText}/>
               <ZoneColumn label="BULLISH" range="(+2 · +10]" accent="emerald" rows={bullish}
                 sortDir={zoneSort.bullish} onToggleSort={() => toggleZoneSort('bullish')}
-                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}/>
+                selected={selected} onSelect={handleSelect} watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} emptyText={boardEmptyText}/>
             </div>
             <aside className="w-[440px] xl:w-[520px] 2xl:w-[600px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
-              {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+              {selected && isDesktop && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
                 notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={toggleWatch}/>}
             </aside>
           </div>
@@ -699,25 +871,25 @@ export default function App() {
                 <span className="w-12 text-right">Earn·Δ</span>
               </div>
               <VirtualRowList key={mobileZone} rows={mobileRows} selected={selected} onSelect={handleSelect}
-                watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} mobile/>
+                watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes} mobile emptyText={boardEmptyText}/>
             </div>
           </div>
         </>
       )}
 
       {view === 'movers' && (
-        <MoversView movers={sectorFilter ? movers.filter(m => m.sector === sectorFilter) : movers}
+        <MoversView bullishMoves={moverSides.bullishMoves} bearishMoves={moverSides.bearishMoves} emptyText={moversEmptyText}
           meta={scan.meta} selected={selected} onSelect={handleSelect}
           watchlist={watchlist} onToggleWatch={toggleWatch} notes={notes}
-          tvInterval={tvInterval} setNotes={setNotes} selectedMeta={selectedMeta} selectedRow={selectedRow} timeframe={timeframe}
+          tvInterval={tvInterval} setNotes={setNotes} selectedMeta={selectedMeta} selectedRow={selectedRow} timeframe={timeframe} isDesktop={isDesktop}
           mobileMoverTab={mobileMoverTab} setMobileMoverTab={setMobileMoverTab}/>
       )}
 
-      {view === 'sectors' && <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/></Suspense>}
+      {view === 'sectors' && <ErrorBoundary key="sectors"><Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><SectorsView sectors={sectors} timeframe={timeframe} activeSector={sectorFilter} onSelectSector={selectSector}/></Suspense></ErrorBoundary>}
 
-      {view === 'backtest' && <Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><BacktestView summary={backtestSummary} timeframe={timeframe} scan={scan} error={backtestError} onRetry={refresh}/></Suspense>}
+      {view === 'backtest' && <ErrorBoundary key="backtest"><Suspense fallback={<div className="flex-1 flex items-center justify-center text-[10px] text-zinc-600 tracking-[0.3em]">LOADING…</div>}><BacktestView summary={backtestSummary} baseline={baseline} timeframe={timeframe} scan={scan} error={backtestError} onRetry={refresh}/></Suspense></ErrorBoundary>}
 
-      {mobileDetailOpen && selected && (
+      {mobileDetailOpen && selected && !isDesktop && (
         <div role="dialog" aria-modal="true" aria-label={`${selected} details`} className="lg:hidden fixed inset-0 z-40 bg-zinc-950 flex flex-col slide-up pt-[env(safe-area-inset-top)]">
           <div className="flex items-center gap-2 px-3 h-10 border-b border-zinc-800 flex-shrink-0 bg-zinc-950">
             <button onClick={() => setMobileDetailOpen(false)} className="flex items-center gap-1 text-zinc-400 -ml-1 px-1 py-1.5 no-tap-highlight">
@@ -746,7 +918,7 @@ export default function App() {
           pct52Filter={pct52Filter} setPct52Filter={setPct52Filter}
           biasFilter={biasFilter} setBiasFilter={setBiasFilter}
           inZoneOnly={inZoneOnly} setInZoneOnly={setInZoneOnly}
-          hasActiveFilters={hasActiveFilters} onClear={clearFilters}
+          hasActiveFilters={hasActiveFilters} onClear={clearFilters} biasNA={biasNA}
           onClose={() => setMobileFiltersOpen(false)}/>
       )}
 
@@ -763,8 +935,7 @@ export default function App() {
 // VIEWS
 // ============================================================================
 
-function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe, mobileMoverTab, setMobileMoverTab }) {
-  const { bullishMoves, bearishMoves } = splitMovers(movers);
+function MoversView({ bullishMoves, bearishMoves, emptyText, meta, selected, onSelect, watchlist, onToggleWatch, notes, tvInterval, setNotes, selectedMeta, selectedRow, timeframe, isDesktop, mobileMoverTab, setMobileMoverTab }) {
 
   // Mobile swipe to switch between BULLISH ↔ BEARISH movers
   const touchRef = useRef({ x: 0, y: 0, active: false });
@@ -786,13 +957,13 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
       {/* DESKTOP: side-by-side columns + detail aside */}
       <div className="hidden lg:flex flex-1 overflow-hidden">
         <div className="flex-1 grid grid-cols-2 overflow-hidden">
-          <MoverColumn label="↑ BULLISH MOVES" accent="emerald" rows={bullishMoves} meta={meta}
+          <MoverColumn label="↑ BULLISH MOVES" accent="emerald" rows={bullishMoves} meta={meta} emptyText={emptyText}
             selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
-          <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta}
+          <MoverColumn label="↓ BEARISH MOVES" accent="red" rows={bearishMoves} meta={meta} emptyText={emptyText}
             selected={selected} onSelect={onSelect} watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
         </div>
         <aside className="w-[440px] xl:w-[520px] 2xl:w-[600px] flex-shrink-0 border-l border-zinc-800 flex flex-col bg-zinc-950">
-          {selected && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
+          {selected && isDesktop && <DetailPanel compact ticker={selected} row={selectedRow} meta={selectedMeta} interval={tvInterval} timeframe={timeframe}
             notes={notes} setNotes={setNotes} watchlist={watchlist} onToggleWatch={onToggleWatch}/>}
         </aside>
       </div>
@@ -816,7 +987,7 @@ function MoversView({ movers, meta, selected, onSelect, watchlist, onToggleWatch
           </div>
           <div className="flex-1 overflow-y-auto col-scroll fade-in" key={mobileMoverTab}>
             {mobileRows.length === 0 ? (
-              <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
+              <div className="px-3 py-12 text-center text-[10px] text-zinc-700 tracking-wider">{emptyText || '— NO MOVES —'}</div>
             ) : mobileRows.map(r => (
               <MoverRowMobile key={r.ticker} r={r} selected={selected === r.ticker}
                 onSelect={() => onSelect(r.ticker)}
@@ -875,7 +1046,7 @@ function MoverRowMobile({ r, selected, onSelect, watched, onToggleWatch, hasNote
   );
 }
 
-function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist, onToggleWatch, notes }) {
+function MoverColumn({ label, accent, rows, meta, emptyText, selected, onSelect, watchlist, onToggleWatch, notes }) {
   const c = accent === 'emerald' ? { text: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5' }
                                   : { text: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/5' };
   return (
@@ -890,7 +1061,7 @@ function MoverColumn({ label, accent, rows, meta, selected, onSelect, watchlist,
       </div>
       <div className="flex-1 overflow-y-auto col-scroll">
         {rows.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MOVES —</div>
+          <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">{emptyText || '— NO MOVES —'}</div>
         ) : rows.map(r => {
           const isSelected = selected === r.ticker;
           const tArrow = r.current_zone !== r.previous_zone && r.previous_zone && r.current_zone
@@ -956,7 +1127,7 @@ function MobileZoneTab({ label, count, active, accent, onClick }) {
   );
 }
 
-function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes, sortDir, onToggleSort }) {
+function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist, onToggleWatch, notes, sortDir, onToggleSort, emptyText }) {
   const accentMap = {
     red:     { text: 'text-red-400',     bg: 'bg-red-500/5',     border: 'border-red-500/30',     dot: 'bg-red-500',     hoverBorder: 'hover:border-red-500/60',     hoverBg: 'hover:bg-red-500/10' },
     amber:   { text: 'text-amber-400',   bg: 'bg-amber-500/5',   border: 'border-amber-500/30',   dot: 'bg-amber-500',   hoverBorder: 'hover:border-amber-500/60',   hoverBg: 'hover:bg-amber-500/10' },
@@ -984,14 +1155,14 @@ function ZoneColumn({ label, range, accent, rows, selected, onSelect, watchlist,
         <span className="flex-1 text-right">PX · 52w · Bias</span><span className="w-14 text-right">Earn·Δ</span>
       </div>
       <VirtualRowList rows={rows} selected={selected} onSelect={onSelect}
-        watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes}/>
+        watchlist={watchlist} onToggleWatch={onToggleWatch} notes={notes} emptyText={emptyText}/>
     </div>
   );
 }
 
 // Virtualized row list — only the visible rows mount (a zone list can be ~600 rows).
 // Owns its own scroll, so selection scroll uses scrollToIndex (off-screen rows aren't in the DOM).
-function VirtualRowList({ rows, selected, onSelect, watchlist, onToggleWatch, notes, mobile }) {
+function VirtualRowList({ rows, selected, onSelect, watchlist, onToggleWatch, notes, mobile, emptyText }) {
   const parentRef = useRef(null);
   const virt = useVirtualizer({
     count: rows.length,
@@ -1007,7 +1178,7 @@ function VirtualRowList({ rows, selected, onSelect, watchlist, onToggleWatch, no
   if (rows.length === 0) {
     return (
       <div ref={parentRef} className="flex-1 overflow-y-auto col-scroll">
-        <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">— NO MATCHES —</div>
+        <div className="px-3 py-8 text-center text-[10px] text-zinc-700 tracking-wider">{emptyText || '— NO MATCHES —'}</div>
       </div>
     );
   }
@@ -1035,11 +1206,12 @@ const RowItem = React.memo(function RowItem({ r, zone, selected, onSelect, watch
   const tArrow = r.transition ? (r.transition.to === 'bullish' ? '↑' : r.transition.to === 'bearish' ? '↓' : '→') : null;
   return (
     <div onClick={onSelect} data-ticker={r.t}
-      role="button" tabIndex={0} aria-label={`${r.t} details`}
+      role="button" tabIndex={0} aria-label={`${r.t} details${r.stale ? `, stale, last scanned ${r.scanDate}` : ''}`}
+      title={r.stale ? `Stale: last scanned ${r.scanDate}` : undefined}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       className={`group flex items-center px-3 ${mobile ? 'h-11' : 'h-9'} border-b border-zinc-900 cursor-pointer transition-colors no-tap-highlight ${
         selected ? 'bg-zinc-900 border-l-2 border-l-emerald-400' : 'active:bg-zinc-900 md:hover:bg-zinc-900/50'
-      }`}>
+      } ${r.stale ? 'opacity-50' : ''}`}>
       <div className="w-14 flex items-center gap-1">
         <button onClick={(e) => { e.stopPropagation(); onToggleWatch(); }}
           aria-label={`${r.t} watchlist`} aria-pressed={watched}
@@ -1053,16 +1225,17 @@ const RowItem = React.memo(function RowItem({ r, zone, selected, onSelect, watch
           {r.bx >= 0 ? '+' : ''}{r.bx.toFixed(2)}
         </span>
       </div>
-      <div className="flex-1 min-w-0 text-right text-[9px] tabular-nums flex items-center justify-end gap-1.5">
+      <div className="flex-1 min-w-0 overflow-hidden text-right text-[9px] tabular-nums flex items-center justify-end gap-1.5">
         <AlignDots score={r.align} />
         <span className="text-zinc-500">${r.px ? r.px.toFixed(2) : '—'}</span>
         {r.pct52 != null && (
           <span className={`text-[8px] ${r.pct52 > 80 ? 'text-emerald-500' : r.pct52 < 20 ? 'text-red-500' : 'text-zinc-600'}`}>{r.pct52.toFixed(0)}%</span>
         )}
         <BiasBadge direction={r.biasDir} inZone={r.inZone} compact={!mobile}/>
+        {r.stale && <span className="flex-shrink-0 text-[8px] font-bold tracking-wider text-amber-500">STALE</span>}
       </div>
       <div className="w-14 flex items-center justify-end gap-1">
-        <EarnBadge daysToEarn={r.daysToEarn} mobile={mobile} />
+        <EarnBadge daysToEarn={r.daysToEarn} unknown={r.earnUnknown} mobile={mobile} />
         {hasNote && <StickyNote className="w-2.5 h-2.5 text-amber-400/60" />}
         {r.transition && (
           <span className={`text-[11px] font-bold ${r.transition.to === 'bullish' ? 'text-emerald-400' : r.transition.to === 'bearish' ? 'text-red-400' : 'text-amber-400'}`}>
@@ -1082,14 +1255,30 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const noteVal = notes[ticker] || '';
   const setNote = (v) => setNotes(n => ({ ...n, [ticker]: v }));
   const watched = !!watchlist[ticker];
-  const [tickerBacktest, setTickerBacktest] = useState([]);
-  const [btError, setBtError] = useState(false);
+  // Per-ticker signals are tagged with the ticker|timeframe they were fetched for, so the previous
+  // ticker's signals never show under the new header (not even during the debounce window).
+  const [btData, setBtData] = useState({ key: null, rows: [], error: false });
+  const btKey = `${ticker}|${timeframe}`;
+  const btLoading = btData.key !== btKey;
+  const tickerBacktest = btLoading ? [] : btData.rows;
+  const btError = !btLoading && btData.error;
   const [aiCopied, setAiCopied] = useState(false);
   const [aiError,  setAiError]  = useState(false);
   // Debounce the ticker driving the chart + per-ticker backtest so arrow-scrubbing
   // doesn't reload the TradingView iframe / refetch on every keystroke.
-  const [debTicker, setDebTicker] = useState(ticker);
-  useEffect(() => { const id = setTimeout(() => setDebTicker(ticker), 250); return () => clearTimeout(id); }, [ticker]);
+  // Ticker and exchange are debounced TOGETHER so the chart never loads a mismatched symbol.
+  // While a timeframe switch is loading, meta is empty ({}): hold the last symbol instead of
+  // loading the bare ticker (no exchange) and then reloading again once the scan lands.
+  // Hold ONLY while the ticker is unchanged: meta also stays {} when the scan FAILED, and a
+  // ticker picked then (e.g. from movers) must still drive the chart + per-ticker signals.
+  const metaReady = meta.stale !== undefined;
+  const [deb, setDeb] = useState({ ticker, ex: meta.ex });
+  useEffect(() => {
+    if (!metaReady && ticker === deb.ticker) return;
+    const id = setTimeout(() => setDeb(d => (d.ticker === ticker && d.ex === meta.ex) ? d : { ticker, ex: meta.ex }), 250);
+    return () => clearTimeout(id);
+  }, [ticker, meta.ex, metaReady, deb.ticker]);
+  const debTicker = deb.ticker;
 
   // Robust clipboard copy: modern API → fallback to hidden textarea → flag error
   const copyToClipboard = async (text) => {
@@ -1116,10 +1305,10 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   useEffect(() => {
     if (!debTicker || !compact) return;
     let ignore = false;
-    setBtError(false);
+    const key = `${debTicker}|${timeframe}`;
     fetchBacktestForTicker(debTicker, timeframe)
-      .then(d => { if (!ignore) setTickerBacktest(d); })
-      .catch(() => { if (!ignore) { setTickerBacktest([]); setBtError(true); } });
+      .then(d => { if (!ignore) setBtData({ key, rows: d, error: false }); })
+      .catch(() => { if (!ignore) setBtData({ key, rows: [], error: true }); });
     return () => { ignore = true; };
   }, [debTicker, timeframe, compact]);
 
@@ -1129,6 +1318,13 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   const zoneColor = zone === 'bullish' ? 'text-emerald-400' : zone === 'bearish' ? 'text-red-400' : 'text-amber-400';
   const align = meta.align;
   const earnLvl = earnLevel(meta.daysToEarn);
+  const tfZones = [meta.daily, meta.weekly, meta.monthly].map(v => v == null ? null : zoneOf(v));
+  const nBull = tfZones.filter(z => z === 'bullish').length;
+  const nBear = tfZones.filter(z => z === 'bearish').length;
+  const nNeu = tfZones.filter(z => z === 'neutral').length;
+  const earnText = meta.earnUnknown === false
+    ? `${meta.earn} (${meta.daysToEarn}d out)`
+    : meta.earn ? `UNKNOWN — the stored date ${meta.earn} has passed; next report date not on file` : 'no earnings date on file';
 
   // AI brief prompt builder — copies to clipboard
   const generateAIPrompt = () => {
@@ -1143,13 +1339,14 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       `BX-TRENDER (current timeframe = ${SCAN_META[timeframe].label}):`,
       `  Current: ${bx != null ? bx.toFixed(2) : '—'} (zone: ${zone || '—'})`,
       `  Previous: ${prev != null ? prev.toFixed(2) : '—'}`,
+      row?.stale && `  NOTE: stale row — last scanned ${row.scanDate}, older than the latest scan.`,
       row?.transition && `  Just transitioned: ${row.transition.from} → ${row.transition.to}`,
       ``,
       `MULTI-TIMEFRAME CONFLUENCE:`,
       `  Daily BX: ${meta.daily != null ? meta.daily.toFixed(2) : '—'}`,
       `  Weekly BX: ${meta.weekly != null ? meta.weekly.toFixed(2) : '—'}`,
       `  Monthly BX: ${meta.monthly != null ? meta.monthly.toFixed(2) : '—'}`,
-      `  Alignment score: ${align != null ? `${align}/3 (${align > 0 ? 'all leaning bullish' : align < 0 ? 'all leaning bearish' : 'mixed'})` : '—'}`,
+      `  Alignment score: ${align != null ? `${align}/3 (net ${align > 0 ? 'bullish' : align < 0 ? 'bearish' : 'flat'}: ${nBull} bullish, ${nNeu} neutral, ${nBear} bearish of ${tfZones.filter(z => z).length} timeframes)` : '—'}`,
       `  Composite BX: ${meta.composite != null ? meta.composite.toFixed(2) : '—'}`,
       ``,
       `MARKET BIAS (${SCAN_META[timeframe].label}):`,
@@ -1160,7 +1357,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       `  Position: ${meta.pct52 != null ? `${meta.pct52.toFixed(0)}% of range` : '—'}`,
       `  High: $${meta.hi52 ? meta.hi52.toFixed(2) : '—'}  ·  Low: $${meta.lo52 ? meta.lo52.toFixed(2) : '—'}`,
       ``,
-      `EARNINGS: ${meta.earn ? `${meta.earn} (${meta.daysToEarn}d out)` : 'no upcoming earnings in next 90d'}`,
+      `EARNINGS: ${earnText}`,
     ].filter(Boolean).join('\n');
     copyToClipboard(lines).then(ok => {
       if (ok) {
@@ -1180,7 +1377,9 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
         <span className="text-xl font-bold tracking-[0.15em] text-zinc-100">{ticker}</span>
         <div className="flex flex-col text-[9px] text-zinc-500 tracking-wider min-w-0">
           <span className="truncate">{meta.ex || '—'} · {meta.sec || '—'}</span>
-          <span className="truncate text-zinc-600">{meta.ind || ''}</span>
+          {row?.stale
+            ? <span className="truncate text-amber-500 font-bold">STALE · LAST SCAN {row.scanDate}</span>
+            : <span className="truncate text-zinc-600">{meta.ind || ''}</span>}
         </div>
       </div>
       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1200,7 +1399,15 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
     </div>
   );
 
-  const renderEarningsBanner = () => earnLvl && (
+  const renderEarningsBanner = () => !earnLvl ? (meta.earnUnknown && (
+    <div className="px-4 py-1.5 border-b border-zinc-800 bg-zinc-900/40 flex-shrink-0">
+      <div className="flex items-center gap-2 text-[10px] tracking-wider min-w-0">
+        <Calendar className="w-3 h-3 text-zinc-500 flex-shrink-0" />
+        <span className="text-zinc-400 font-bold flex-shrink-0">EARNINGS DATE UNKNOWN</span>
+        <span className="text-zinc-600 truncate">{meta.earn ? `· stored ${meta.earn} has passed` : '· none on file'}</span>
+      </div>
+    </div>
+  )) : (
     <div className={`px-4 py-2 border-b ${earnLvl === 'imminent' ? 'bg-red-500/10 border-red-500/40' : 'bg-amber-500/10 border-amber-500/40'} flex-shrink-0`}>
       <div className="flex items-center gap-2 text-[11px] tracking-wider">
         <Calendar className={`w-3.5 h-3.5 ${earnLvl === 'imminent' ? 'text-red-400' : 'text-amber-400'}`} />
@@ -1336,10 +1543,10 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
   );
 
   const renderBacktestBody = () => tickerBacktest.length === 0 ? (
-    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">{btError ? 'Failed to load backtest — refresh to retry.' : `No historical signals for ${ticker} on this timeframe yet.`}</div>
+    <div className="px-4 py-3 text-[10px] text-zinc-600 tracking-wider">{btLoading ? 'Loading…' : btError ? 'Failed to load backtest — refresh to retry.' : `No historical signals for ${ticker} on this timeframe yet.`}</div>
   ) : (
     <div className="px-4 py-3">
-      <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return at 60 {timeframe === 'daily' ? 'days' : timeframe === 'weekly' ? 'weeks' : 'months'}</div>
+      <div className="text-[9px] text-zinc-500 tracking-wider mb-2">Last {Math.min(tickerBacktest.length, 5)} signals · forward return 60 bars later (60 {timeframe === 'daily' ? 'trading days' : timeframe === 'weekly' ? 'weeks' : 'months'}){timeframe !== 'daily' && ` · dates are the ${timeframe === 'weekly' ? 'week' : 'month'}'s last trading day`}</div>
       <div className="space-y-1.5">
         {tickerBacktest.slice(0, 5).map((s) => {
           const ret = s.ret_60d;
@@ -1407,7 +1614,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
       <CollapsibleSection title="BACKTEST"   icon={History}    summary={backtestSummary}>{renderBacktestBody()}</CollapsibleSection>
       <div className="flex-1 min-h-[60vh] flex-shrink-0 relative border-b border-zinc-800 bg-zinc-950">
         <div className="absolute top-2 left-3 z-10 text-[9px] tracking-[0.3em] text-zinc-600 pointer-events-none">TRADINGVIEW · {interval}</div>
-        {debTicker && <TVChart ticker={debTicker} interval={interval} exchange={meta.ex} />}
+        {debTicker && <TVChart ticker={debTicker} interval={interval} exchange={deb.ex} />}
       </div>
       <CollapsibleSection title="NOTES" icon={StickyNote} summary={notesSummary}>{renderNotesBody()}</CollapsibleSection>
     </div>
@@ -1420,7 +1627,7 @@ function DetailPanel({ ticker, row, meta, interval, timeframe, notes, setNotes, 
 // DRAWERS
 // ============================================================================
 
-function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, priceMax, setPriceMax, volMin, setVolMin, earnFilter, setEarnFilter, pct52Filter, setPct52Filter, biasFilter, setBiasFilter, inZoneOnly, setInZoneOnly, hasActiveFilters, onClear, onClose }) {
+function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, priceMax, setPriceMax, volMin, setVolMin, earnFilter, setEarnFilter, pct52Filter, setPct52Filter, biasFilter, setBiasFilter, inZoneOnly, setInZoneOnly, hasActiveFilters, onClear, onClose, biasNA }) {
   return (
     <div role="dialog" aria-modal="true" aria-label="Filters" className="lg:hidden fixed inset-0 bg-black/70 flex items-end z-50" onClick={onClose}>
       <div className="w-full bg-zinc-950 border-t border-zinc-800 slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1448,6 +1655,9 @@ function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, pri
               className={`w-full px-3 py-2 border text-[11px] tracking-wider ${inZoneOnly ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-zinc-800 text-zinc-400'}`}>
               {inZoneOnly ? '✓ ONLY SHOW "IN ZONE"' : 'ONLY SHOW "IN ZONE"'}
             </button>
+            {(biasFilter !== 0 || inZoneOnly) && biasNA > 0 && (
+              <div className="mt-2 text-[10px] text-zinc-600 tracking-wider">{biasNA} tickers without enough history for Market Bias are hidden.</div>
+            )}
           </div>
           <div>
             <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">MARKET CAP</div>
@@ -1459,7 +1669,7 @@ function MobileFiltersDrawer({ mcBucket, setMcBucket, priceMin, setPriceMin, pri
             </div>
           </div>
           <div>
-            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">EARNINGS · skip if within</div>
+            <div className="text-[10px] tracking-[0.3em] text-zinc-500 mb-2">EARNINGS · skip if within (or unknown)</div>
             <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
               {EARN_BUCKETS.map((b, i) => (
                 <button key={b.label} onClick={() => setEarnFilter(i)}

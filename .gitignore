@@ -23,3 +23,10 @@ pnpm-debug.log*
 
 # vite cache
 .vite/
+
+# research data (large, local only)
+research/data/
+__pycache__/
+
+# supabase cli
+supabase/.temp/

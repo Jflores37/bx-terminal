@@ -1,0 +1,78 @@
+-- DB baseline snapshot: every cron.job row. Project wefobwdspqzxbesbnzoc, captured 2026-10-24.
+-- READ-ONLY REFERENCE, not a migration. Schedules are UTC (cron.timezone = GMT).
+-- All jobs: active = true, username = postgres, database = postgres.
+-- No secret literals present (commands only call public.invoke_edge_function / reconcile / refresh);
+-- a JWT redaction regex was applied anyway and matched nothing.
+-- Gaps in jobid (1,3,5,16,30-32) are jobs deleted earlier.
+--
+-- ET translation below: EDT = UTC-4 (until Sun Nov 1 2026), EST = UTC-5 (after).
+--
+-- jobid | jobname                       | schedule      | EDT time            | EST time            | command
+-- ------+-------------------------------+---------------+---------------------+---------------------+---------------------------------------------
+--   2   | bx-alert-daily                | 25 21 * * 1-5 | 5:25 PM Mon-Fri     | 4:25 PM Mon-Fri     | select invoke_edge_function('bx-alerter','timeframe=daily')
+--   4   | bx-alert-weekly               | 20 14 * * 0   | 10:20 AM Sun        | 9:20 AM Sun         | select invoke_edge_function('bx-alerter','timeframe=weekly')
+--   6   | bx-alert-monthly              | 20 14 1 * *   | 10:20 AM on the 1st | 9:20 AM on the 1st  | select invoke_edge_function('bx-alerter','timeframe=monthly')
+--   7   | bx-finviz-sync-daily          | 30 20 * * 1-5 | 4:30 PM Mon-Fri     | 3:30 PM Mon-Fri (!) | select invoke_edge_function('bx-finviz-sync');
+--   8   | bx-finviz-sync-weekly         | 30 13 * * 0   | 9:30 AM Sun         | 8:30 AM Sun         | select invoke_edge_function('bx-finviz-sync');
+--   9   | bx-finviz-sync-monthly        | 30 13 1 * *   | 9:30 AM on the 1st  | 8:30 AM on the 1st  | select invoke_edge_function('bx-finviz-sync');
+--  10   | bx-exchange-backfill-daily    | 35 20 * * 1-5 | 4:35 PM Mon-Fri     | 3:35 PM Mon-Fri (!) | select invoke_edge_function('bx-exchange-backfill');
+--  11   | bx-exchange-backfill-weekly   | 35 13 * * 0   | 9:35 AM Sun         | 8:35 AM Sun         | select invoke_edge_function('bx-exchange-backfill');
+--  12   | bx-exchange-backfill-monthly  | 35 13 1 * *   | 9:35 AM on the 1st  | 8:35 AM on the 1st  | select invoke_edge_function('bx-exchange-backfill');
+--  13   | bx-earnings-sync-weekly       | 0 15 * * 0    | 11:00 AM Sun        | 10:00 AM Sun        | select invoke_edge_function('bx-earnings-sync');
+--  14   | bx-earnings-sync-sunday       | 40 13 * * 0   | 9:40 AM Sun         | 8:40 AM Sun         | select invoke_edge_function('bx-earnings-sync');
+--  15   | bx-earnings-sync-wednesday    | 40 20 * * 3   | 4:40 PM Wed         | 3:40 PM Wed         | select invoke_edge_function('bx-earnings-sync');
+--  17   | bx-backtest-weekly-weekly     | 5 12 * * 0    | 8:05 AM Sun         | 7:05 AM Sun         | select invoke_edge_function('bx-backtest-builder', 'timeframe=weekly');
+--  18   | bx-backtest-weekly-monthly    | 10 12 * * 0   | 8:10 AM Sun         | 7:10 AM Sun         | select invoke_edge_function('bx-backtest-builder', 'timeframe=monthly');
+--  19   | bx-backtest-weekly-daily-1    | 0 12 * * 0    | 8:00 AM Sun         | 7:00 AM Sun         | select invoke_edge_function('bx-backtest-builder', 'timeframe=daily&offset=0&limit=1000');
+--  20   | bx-backtest-weekly-daily-2    | 3 12 * * 0    | 8:03 AM Sun         | 7:03 AM Sun         | select invoke_edge_function('bx-backtest-builder', 'timeframe=daily&offset=1000&limit=1000');
+--  21   | bx-scan-daily-c1              | 5 21 * * 1-5  | 5:05 PM Mon-Fri     | 4:05 PM Mon-Fri (!) | select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=0&limit=410')
+--  22   | bx-scan-daily-c2              | 11 21 * * 1-5 | 5:11 PM Mon-Fri     | 4:11 PM Mon-Fri (!) | select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=410&limit=410')
+--  23   | bx-scan-daily-c3              | 17 21 * * 1-5 | 5:17 PM Mon-Fri     | 4:17 PM Mon-Fri     | select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=820&limit=410')
+--  24   | bx-scan-weekly-c1             | 0 14 * * 0    | 10:00 AM Sun        | 9:00 AM Sun         | select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=0&limit=410')
+--  25   | bx-scan-weekly-c2             | 6 14 * * 0    | 10:06 AM Sun        | 9:06 AM Sun         | select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=410&limit=410')
+--  26   | bx-scan-weekly-c3             | 12 14 * * 0   | 10:12 AM Sun        | 9:12 AM Sun         | select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=820&limit=410')
+--  27   | bx-scan-monthly-c1            | 0 14 1 * *    | 10:00 AM on the 1st | 9:00 AM on the 1st  | select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=0&limit=410')
+--  28   | bx-scan-monthly-c2            | 6 14 1 * *    | 10:06 AM on the 1st | 9:06 AM on the 1st  | select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=410&limit=410')
+--  29   | bx-scan-monthly-c3            | 12 14 1 * *   | 10:12 AM on the 1st | 9:12 AM on the 1st  | select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=820&limit=410')
+--  33   | reconcile-universe-daily      | 36 20 * * 1-5 | 4:36 PM Mon-Fri     | 3:36 PM Mon-Fri (!) | select public.reconcile_universe()
+--  34   | reconcile-universe-weekly     | 36 13 * * 0   | 9:36 AM Sun         | 8:36 AM Sun         | select public.reconcile_universe()
+--  35   | reconcile-universe-monthly    | 36 13 1 * *   | 9:36 AM on the 1st  | 8:36 AM on the 1st  | select public.reconcile_universe()
+--  36   | refresh-bx-backtest-summary   | 30 12 * * 0   | 8:30 AM Sun         | 7:30 AM Sun         | REFRESH MATERIALIZED VIEW CONCURRENTLY public.bx_backtest_summary
+--
+-- (!) = runs BEFORE the 4:00 PM ET close (or before the ~4:15 PM settle) once EST starts Nov 1 2026.
+-- Observed: last 8 days all job_run_details 'succeeded' (pg_cron only records that the SELECT ran;
+-- the HTTP outcome lives in net._http_response for ~6 h, pg_net.ttl = 6 hours).
+-- Observed HTTP outcomes 10/23: bx-scan-daily-c3 -> 546 WORKER_RESOURCE_LIMIT after 150.6 s wall clock;
+-- bx-exchange-backfill -> 500 "upsert 400 PGRST102 All object keys must match" (also 500 on 10/22).
+
+-- Machine-readable copy (same data):
+-- (jobid, jobname, schedule, active, command)
+-- (2,  'bx-alert-daily',               '25 21 * * 1-5', true, $$select invoke_edge_function('bx-alerter','timeframe=daily')$$)
+-- (4,  'bx-alert-weekly',              '20 14 * * 0',   true, $$select invoke_edge_function('bx-alerter','timeframe=weekly')$$)
+-- (6,  'bx-alert-monthly',             '20 14 1 * *',   true, $$select invoke_edge_function('bx-alerter','timeframe=monthly')$$)
+-- (7,  'bx-finviz-sync-daily',         '30 20 * * 1-5', true, $$ select invoke_edge_function('bx-finviz-sync'); $$)
+-- (8,  'bx-finviz-sync-weekly',        '30 13 * * 0',   true, $$ select invoke_edge_function('bx-finviz-sync'); $$)
+-- (9,  'bx-finviz-sync-monthly',       '30 13 1 * *',   true, $$ select invoke_edge_function('bx-finviz-sync'); $$)
+-- (10, 'bx-exchange-backfill-daily',   '35 20 * * 1-5', true, $$ select invoke_edge_function('bx-exchange-backfill'); $$)
+-- (11, 'bx-exchange-backfill-weekly',  '35 13 * * 0',   true, $$ select invoke_edge_function('bx-exchange-backfill'); $$)
+-- (12, 'bx-exchange-backfill-monthly', '35 13 1 * *',   true, $$ select invoke_edge_function('bx-exchange-backfill'); $$)
+-- (13, 'bx-earnings-sync-weekly',      '0 15 * * 0',    true, $$ select invoke_edge_function('bx-earnings-sync'); $$)
+-- (14, 'bx-earnings-sync-sunday',      '40 13 * * 0',   true, $$ select invoke_edge_function('bx-earnings-sync'); $$)
+-- (15, 'bx-earnings-sync-wednesday',   '40 20 * * 3',   true, $$ select invoke_edge_function('bx-earnings-sync'); $$)
+-- (17, 'bx-backtest-weekly-weekly',    '5 12 * * 0',    true, $$ select invoke_edge_function('bx-backtest-builder', 'timeframe=weekly'); $$)
+-- (18, 'bx-backtest-weekly-monthly',   '10 12 * * 0',   true, $$ select invoke_edge_function('bx-backtest-builder', 'timeframe=monthly'); $$)
+-- (19, 'bx-backtest-weekly-daily-1',   '0 12 * * 0',    true, $$ select invoke_edge_function('bx-backtest-builder', 'timeframe=daily&offset=0&limit=1000'); $$)
+-- (20, 'bx-backtest-weekly-daily-2',   '3 12 * * 0',    true, $$ select invoke_edge_function('bx-backtest-builder', 'timeframe=daily&offset=1000&limit=1000'); $$)
+-- (21, 'bx-scan-daily-c1',             '5 21 * * 1-5',  true, $$select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=0&limit=410')$$)
+-- (22, 'bx-scan-daily-c2',             '11 21 * * 1-5', true, $$select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=410&limit=410')$$)
+-- (23, 'bx-scan-daily-c3',             '17 21 * * 1-5', true, $$select invoke_edge_function('bx-scan','timeframe=daily&source=tradestation&offset=820&limit=410')$$)
+-- (24, 'bx-scan-weekly-c1',            '0 14 * * 0',    true, $$select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=0&limit=410')$$)
+-- (25, 'bx-scan-weekly-c2',            '6 14 * * 0',    true, $$select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=410&limit=410')$$)
+-- (26, 'bx-scan-weekly-c3',            '12 14 * * 0',   true, $$select invoke_edge_function('bx-scan','timeframe=weekly&source=tradestation&offset=820&limit=410')$$)
+-- (27, 'bx-scan-monthly-c1',           '0 14 1 * *',    true, $$select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=0&limit=410')$$)
+-- (28, 'bx-scan-monthly-c2',           '6 14 1 * *',    true, $$select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=410&limit=410')$$)
+-- (29, 'bx-scan-monthly-c3',           '12 14 1 * *',   true, $$select invoke_edge_function('bx-scan','timeframe=monthly&source=tradestation&offset=820&limit=410')$$)
+-- (33, 'reconcile-universe-daily',     '36 20 * * 1-5', true, $$select public.reconcile_universe()$$)
+-- (34, 'reconcile-universe-weekly',    '36 13 * * 0',   true, $$select public.reconcile_universe()$$)
+-- (35, 'reconcile-universe-monthly',   '36 13 1 * *',   true, $$select public.reconcile_universe()$$)
+-- (36, 'refresh-bx-backtest-summary',  '30 12 * * 0',   true, $$REFRESH MATERIALIZED VIEW CONCURRENTLY public.bx_backtest_summary$$)

@@ -1,0 +1,44 @@
+# Supabase CLI config for BX Terminal (remote project only; no local stack is used).
+# Per-function verify_jwt is the source of truth for 'supabase functions deploy'.
+# Cron-invoked functions authenticate with the x-cron-secret header (see _shared/cron_auth.ts),
+# OAuth endpoints are browser-facing, and ts-token is key-gated, so those skip the gateway JWT check.
+project_id = "wefobwdspqzxbesbnzoc"
+
+[functions.bx-scan]
+verify_jwt = false
+
+[functions.bx-backtest-builder]
+verify_jwt = false
+
+[functions.bx-alerter]
+verify_jwt = false
+
+[functions.bx-finviz-sync]
+verify_jwt = false
+
+[functions.bx-earnings-sync]
+verify_jwt = false
+
+[functions.bx-exchange-backfill]
+verify_jwt = false
+
+[functions.ts-token]
+verify_jwt = false
+
+[functions.ts-oauth-start]
+verify_jwt = false
+
+[functions.ts-oauth-callback]
+verify_jwt = false
+
+[functions.refresh-quotes]
+verify_jwt = true
+
+[functions.ts-stream]
+verify_jwt = true
+
+[functions.ts-probe]
+verify_jwt = true
+
+[functions.finviz-probe]
+verify_jwt = true
