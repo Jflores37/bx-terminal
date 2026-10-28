@@ -1,6 +1,6 @@
 # Environment snapshot
 
-Project `wefobwdspqzxbesbnzoc` ("Bx-trender"), org `ravgqvnwygvamvdqpyfi` (JeremyFTrades), region us-east-2.
+Project `wefobwdspqzxbesbnzoc` ("Bx-trender"), org `<org-id>`, region us-east-2.
 Captured 2026-10-24. No secret VALUES appear anywhere in this file.
 
 ## Plan and limits

@@ -124,7 +124,7 @@ Triggers: `auth.users` -> `on_auth_user_created AFTER INSERT ... EXECUTE FUNCTIO
 | updated_at | timestamptz | now() | null |
 
 - PK `app_settings_pkey (key)`; Policies: none (anon/authenticated cannot read rows)
-- Keys present (values not copied): `finviz_auth_token` (secret, used by bx-finviz-sync), `finviz_filter`. Both updated 2026-05-12.
+- Keys present (values not copied): see bx-finviz-sync. Last updated 2026-05-12.
 
 ## public.tradestation_tokens — 1 row [1], 432 kB
 | column | type | default | null |

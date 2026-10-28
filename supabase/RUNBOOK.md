@@ -3,9 +3,9 @@
 The production rollout for the 2026-10-24 audit fixes, in order. It merges every unit's rollout steps:
 sec, db, edge-math, edge-data, frontend, ts-consumers, research-engine and research-phases.
 
-- Project: `wefobwdspqzxbesbnzoc`. Repo: `C:\Users\jer_2\bx-terminal`. The repo is PUBLIC.
+- Project: `wefobwdspqzxbesbnzoc`. Repo: `<repo-root>`. The repo is PUBLIC.
 - Baseline (what production runs today) = `0834d06`. Round 1 = `95e59cb`. Round-2 edits are uncommitted in the working tree.
-- Deploy command (run from `C:\Users\jer_2\bx-terminal`): `supabase functions deploy <slug> --project-ref wefobwdspqzxbesbnzoc --use-api`.
+- Deploy command (run from `<repo-root>`): `supabase functions deploy <slug> --project-ref wefobwdspqzxbesbnzoc --use-api`.
   verify_jwt comes from `supabase/config.toml`.
 - SQL files are applied in this order: Supabase MCP `apply_migration` (name `bx_<file stem>`, query = the whole file), or paste
   the file into Dashboard > SQL editor. Both run as `postgres`.
@@ -13,7 +13,7 @@ sec, db, edge-math, edge-data, frontend, ts-consumers, research-engine and resea
 - All times are ET in 12-hour format unless marked UTC. DST ends Sun 11/1/2026.
 
 **Secrets rule.** Secret values never go in this file, in a commit, in a chat transcript, or on a command line.
-They live only in `%USERPROFILE%\.bx-secrets\edge.env` (outside every repo), in Supabase secrets/Vault, and in Vercel env.
+They live only in `a local secrets file (outside every repo)` (outside every repo), in Supabase secrets/Vault, and in Vercel env.
 Every verification below prints status codes, counts or booleans, never a value.
 
 **Marker legend.** `[USER]` = only the user can do it (needs a value or a choice Claude must not see or make).
@@ -33,7 +33,7 @@ It is Saturday 10/24. No cron jobs fire on Saturday.
   from `supabase/snapshot/cron_jobs.sql`):
   `select cron.unschedule(jobname) from cron.job where jobname like 'bx-backtest-%';`
   Rollback: re-create them from `supabase/snapshot/cron_jobs.sql`.
-- Timing for the consumer cutover (Phase 3): avoid 2:45-3:15 AM ET (trading-journal cron) and market hours (InPlayScanner).
+- Timing for the consumer cutover (Phase 3): avoid 2:45-3:15 AM ET (<consumer B> cron) and market hours (<local scanner>).
   Saturday is ideal.
 
 ### 0.2 Builder cut-off gate `GATE` (read-only)
@@ -46,7 +46,7 @@ If it fails, STOP. `V5_EPOCH` in `bx-backtest-builder/index.ts` and the cut-offs
 
 ### 0.3 Local checks (no network writes)
 ```bash
-cd /c/Users/jer_2/bx-terminal
+cd <repo-root>
 supabase --version                                   # 2.90.x
 supabase functions list --project-ref wefobwdspqzxbesbnzoc   # 13 functions, matches supabase/snapshot/env.md
 npx -y deno@2 test supabase/tests/bx_math.test.ts    # all pass
@@ -56,7 +56,7 @@ npm run build                                        # must pass
 ### 0.4 Commit the round-2 tree locally (do NOT push yet; the push in Phase 7 deploys the SPA)
 Include only fix files. The untracked `research/notes/04-*.md` and `05-*.md` are not part of this effort and stay out.
 ```bash
-cd /c/Users/jer_2/bx-terminal
+cd <repo-root>
 git add supabase src vercel.json research/*.py research/tests research/PLAN.md research/reports/ERRATA_2026-10-24.md
 git diff --cached --stat
 # Secret scan of everything that will become public (must print nothing):
@@ -70,9 +70,9 @@ Note the commit hash as `ROLLOUT_SHA`. Every deploy below comes from this tree.
 ## Phase 1: Secrets
 
 ### 1.1 Generate CRON_SECRET and TS_TOKEN_KEY locally (PowerShell; prints nothing)
-Use NEW random values. Never reuse the old ts-token key: it is in `function_edge_logs` and in the old TS_TOKEN_URL values.
+Use NEW random values; never reuse a key that was ever placed in a URL.
 ```powershell
-$dir = Join-Path $env:USERPROFILE '.bx-secrets'
+$dir = '<secrets-dir>'
 New-Item -ItemType Directory -Force $dir | Out-Null
 icacls $dir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" | Out-Null
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -84,7 +84,7 @@ if (-not (Test-Path $f)) {
 ```
 Reusable helpers for later PowerShell steps:
 ```powershell
-$f = Join-Path $env:USERPROFILE '.bx-secrets\edge.env'
+$f = '<secrets file>'
 function Get-Sec($n) { ((Get-Content $f | Where-Object { $_ -like "$n=*" }) -split '=', 2)[1] }
 function Set-EnvLine($path, $name, $value) {
   $lines = @(Get-Content $path | Where-Object { $_ -notlike "$name=*" }); $lines += "$name=$value"
@@ -93,11 +93,10 @@ function Set-EnvLine($path, $name, $value) {
 ```
 
 ### 1.2 `[USER]` Fill the two values Claude must not see
-Run `notepad $env:USERPROFILE\.bx-secrets\edge.env` and fill in:
+Run `notepad '<secrets file>'` and fill in:
 - `TS_OWNER_ACCOUNTS=`: comma-separated LIVE TradeStation AccountIDs that may re-link OAuth, with no spaces.
   If this is wrong, re-links fail closed: nothing breaks today, but a future re-link is refused.
-- `FINVIZ_AUTH_TOKEN=`: the current Finviz Elite token. Copy it from Dashboard > Table editor > `app_settings`, row
-  `key = finviz_auth_token`, or from your Finviz account. Do not paste it into chat.
+- `FINVIZ_AUTH_TOKEN=`: the current Finviz Elite token. Copy it from your Finviz account. Do not paste it into chat.
 
 ### 1.3 `[DECISION]` TRADESTATION_ENV
 The variable is unset today, so bx-scan reads bars from `sim-api.tradestation.com`. The OAuth identity check always uses
@@ -115,8 +114,8 @@ Get-Content $f | ForEach-Object { $k, $v = $_ -split '=', 2; '{0}: set={1} len={
 # expect CRON_SECRET len 64, TS_TOKEN_KEY len 64, TS_OWNER_ACCOUNTS set=True, FINVIZ_AUTH_TOKEN set=True
 ```
 ```powershell
-cd C:\Users\jer_2\bx-terminal
-supabase secrets set --project-ref wefobwdspqzxbesbnzoc --env-file "$env:USERPROFILE\.bx-secrets\edge.env"
+cd <repo-root>
+supabase secrets set --project-ref wefobwdspqzxbesbnzoc --env-file "<secrets file>"
 supabase secrets list --project-ref wefobwdspqzxbesbnzoc
 ```
 The list shows names and digests only. Expect CRON_SECRET, TS_TOKEN_KEY, TS_OWNER_ACCOUNTS and FINVIZ_AUTH_TOKEN
@@ -124,7 +123,7 @@ The list shows names and digests only. Expect CRON_SECRET, TS_TOKEN_KEY, TS_OWNE
 
 Side effect: setting CRON_SECRET makes the OLD deployed bx-scan, bx-alerter and bx-finviz-sync enforce `x-cron-secret`
 immediately. Go straight on to 1.5 and Phase 2. Nothing fires on Saturday.
-The old ts-token ignores TS_TOKEN_KEY (it has a hard-coded key), so that secret is inert until 3.1.
+The old ts-token ignores TS_TOKEN_KEY, so that secret is inert until 3.1.
 
 Rollback: `supabase secrets unset --project-ref wefobwdspqzxbesbnzoc CRON_SECRET` turns off the old gates again.
 The new functions fail closed (500) without it.
@@ -249,26 +248,26 @@ SQL rollback for Phase 2, in reverse order: 40 -> 30 -> 22 -> 21 -> 20 -> 10, us
 
 ## Phase 3: TradeStation token cutover (sec + ts-consumers)
 
-Since round 1, the consumer working trees already send only the `x-ts-key` header. A trader-backtest-lab process started
+Since round 1, the consumer working trees already send only the `x-ts-key` header. A <consumer A> process started
 from the new `data_layer.py` therefore gets 401 from the OLD ts-token until 3.1 lands, and falls back to local refresh or
 yfinance. Keep this phase short and contiguous.
 
 ### 3.0 Prepare the consumers (no restarts yet)
 Run local tests first:
 ```powershell
-cd C:\Users\jer_2\trading-journal; npx tsc --noEmit; npx vitest run src/lib/tradestation-api.test.ts
-cd C:\Users\jer_2\trader-backtest-lab; python -m py_compile src\data_layer.py; python -m pytest src\scan\test_data_layer.py -q
+cd <consumer-B-repo>; npx tsc --noEmit; npx vitest run src/lib/tradestation-api.test.ts
+cd <consumer-A-repo>; python -m py_compile src\data_layer.py; python -m pytest src\scan\test_data_layer.py -q
 ```
 Update the env files (prints nothing):
 ```powershell
-# trader-backtest-lab: new key. The URL already has no key= (verify the second line prints False).
-Set-EnvLine 'C:\Users\jer_2\trader-backtest-lab\.env' 'TS_TOKEN_BROKER_KEY' (Get-Sec TS_TOKEN_KEY)
-[bool](Select-String -Path 'C:\Users\jer_2\trader-backtest-lab\.env' -Pattern '^TS_TOKEN_BROKER_URL=.*key=' -Quiet)
-# trading-journal .env.local (used only by collector/src/backfill-equity.ts, which runs by hand):
-Set-EnvLine 'C:\Users\jer_2\trading-journal\.env.local' 'TS_TOKEN_KEY' (Get-Sec TS_TOKEN_KEY)
-Set-EnvLine 'C:\Users\jer_2\trading-journal\.env.local' 'TS_TOKEN_URL' 'https://wefobwdspqzxbesbnzoc.supabase.co/functions/v1/ts-token'
+# <consumer A>: new key. The URL already has no key= (verify the second line prints False).
+Set-EnvLine '<consumer-A-repo>\.env' 'TS_TOKEN_BROKER_KEY' (Get-Sec TS_TOKEN_KEY)
+[bool](Select-String -Path '<consumer-A-repo>\.env' -Pattern '^TS_TOKEN_BROKER_URL=.*key=' -Quiet)
+# <consumer B> .env.local (used only by collector/src/backfill-equity.ts, which runs by hand):
+Set-EnvLine '<consumer-B-repo>\.env.local' 'TS_TOKEN_KEY' (Get-Sec TS_TOKEN_KEY)
+Set-EnvLine '<consumer-B-repo>\.env.local' 'TS_TOKEN_URL' 'https://wefobwdspqzxbesbnzoc.supabase.co/functions/v1/ts-token'
 ```
-`[USER]` In Vercel project **claude-dashboard** (team jflores37s-projects), Settings > Environment Variables, for
+`[USER]` In Vercel project **<vercel-project>** (team <vercel-team>), Settings > Environment Variables, for
 Production (and Preview if used):
 - Add `TS_TOKEN_KEY` = the value from `Get-Sec TS_TOKEN_KEY | Set-Clipboard`.
 - Edit `TS_TOKEN_URL` to the bare `https://wefobwdspqzxbesbnzoc.supabase.co/functions/v1/ts-token`. The code strips
@@ -279,27 +278,27 @@ appends CRLF to the value. Do not redeploy yet.
 
 ### 3.1 Deploy ts-token
 ```bash
-cd /c/Users/jer_2/bx-terminal
+cd <repo-root>
 supabase functions deploy ts-token --project-ref wefobwdspqzxbesbnzoc --use-api
 ```
 From this moment, callers still sending `?key=` get 400.
 
-### 3.2 Immediately restart InPlayScanner (trader-backtest-lab)
+### 3.2 Immediately restart <local scanner> (<consumer A>)
 ```powershell
-Stop-ScheduledTask -TaskName InPlayScanner; Start-ScheduledTask -TaskName InPlayScanner
-(Get-ScheduledTask -TaskName InPlayScanner).State                       # Running
+Stop-ScheduledTask -TaskName <local scanner task>; Start-ScheduledTask -TaskName <local scanner task>
+(Get-ScheduledTask -TaskName <local scanner task>).State                       # Running
 Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*run_live*' |
   Select-Object ProcessId, CreationDate                                   # CreationDate = just now
-curl.exe -s -o NUL -w "%{http_code}`n" http://localhost:8788/            # 200 (or the app's normal code)
+curl.exe -s -o NUL -w "%{http_code}`n" <local scanner URL>            # 200 (or the app's normal code)
 ```
-Do not touch the InPlayTunnel task. TraderLabDaily, SDJGuru and Paper3Books pick up the new code and env on their next run.
+Do not touch the tunnel task. The other scheduled tasks pick up the new code and env on their next run.
 
-`[DECISION]` Optionally commit trader-backtest-lab's 3 files only (branch `master`; the tree has many unrelated changes):
+`[DECISION]` Optionally commit <consumer A>'s 3 files only (branch `master`; the tree has many unrelated changes):
 `git add src/data_layer.py src/scan/test_data_layer.py README.md; git commit -m "ts-token: x-ts-key header + expires_at caching"`.
 
-### 3.3 Redeploy trading-journal (commit ONLY the 4 unit files; the tree has unrelated uncommitted changes)
+### 3.3 Redeploy <consumer B> (commit ONLY the 4 unit files; the tree has unrelated uncommitted changes)
 ```powershell
-cd C:\Users\jer_2\trading-journal
+cd <consumer-B-repo>
 git add src/lib/tradestation-api.ts src/lib/tradestation-api.test.ts src/app/api/cron/tradestation/route.ts collector/src/backfill-equity.ts
 git diff --cached --stat        # exactly those 4 files
 git commit -m "ts-token: send x-ts-key header, strip key= from TS_TOKEN_URL"
@@ -322,7 +321,7 @@ deliberate re-link.
 
 ### 3.5 Verify (bash; prints no secrets)
 ```bash
-export TS_TOKEN_KEY=$(grep '^TS_TOKEN_KEY=' ~/.bx-secrets/edge.env | cut -d= -f2- | tr -d '\r')
+export TS_TOKEN_KEY=$(grep '^TS_TOKEN_KEY=' <secrets file> | cut -d= -f2- | tr -d '\r')
 B=https://wefobwdspqzxbesbnzoc.supabase.co/functions/v1; U=$B/ts-token
 curl -s -o /dev/null -w '%{http_code}\n' "$U?key=x"                     # 400
 curl -s -o /dev/null -w '%{http_code}\n' "$U"                           # 401
@@ -353,11 +352,11 @@ select has_table_privilege('anon','public.app_settings','SELECT') a, has_table_p
   should print 200. Column b already proves anon cannot write, so never POST to bx_scans.
 
 Consumers:
-- trading-journal: trigger its cron against the production deployment with
-  `curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $JOURNAL_CRON_SECRET" https://<claude-dashboard prod domain>/api/cron/tradestation`.
+- <consumer B>: trigger its cron against the production deployment with
+  `curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $JOURNAL_CRON_SECRET" https://<prod domain>/api/cron/tradestation`.
   Expect 200, not 502 'ts-token HTTP 400/401'. `$JOURNAL_CRON_SECRET` is the journal's OWN Vercel CRON_SECRET, unrelated
-  to Supabase's. Get the domain from `vercel ls claude-dashboard`.
-- InPlayScanner log: no 'TS token broker failed'. On the next market day, TS data must keep flowing for more than 20 min
+  to Supabase's. Get the domain from `vercel ls <vercel-project>`.
+- <local scanner> log: no 'TS token broker failed'. On the next market day, TS data must keep flowing for more than 20 min
   (this proves the token re-mints at expires_at).
 
 After ~20 min of use, check the logs with read-only `query_logs`:
@@ -366,8 +365,8 @@ select countIf(position(event_message,'refresh_token=eq.')>0) rt_in_url, countIf
 from logs where source='edge_logs';     -- rt_in_url = 0, cas_calls >= 1
 -- If the endpoint rejects ClickHouse syntax: COUNTIF(STRPOS(event_message,'...')>0)
 ```
-Also count `function_edge_logs` ts-token rows whose event_message contains `ts-token?key=` after the deploy time.
-Expect 0 once InPlayScanner restarts, with statuses at 200. TS refreshes drop to about 1 per 18 min of use.
+Also confirm no ts-token request after the deploy time carries a query-string key.
+Expect 0 once <local scanner> restarts, with statuses at 200. TS refreshes drop to about 1 per 18 min of use.
 ```sql
 select expires_at > now() ok, updated_at from public.tradestation_tokens where id = 1;   -- ok = true, recent updated_at
 ```
@@ -378,7 +377,7 @@ Rollback for Phase 3:
   ts-oauth-start and the `code_verifier` field in the callback, then redeploy.
 - Stubs: `git show 0834d06:supabase/functions/<fn>/index.ts`. Not recommended: both originals are vulnerable and unused.
 - **Never** roll `_shared/ts_auth.ts` back to a URL-filter CAS. That re-leaks the refresh token into edge_logs.
-- trading-journal: `git revert` the commit and push (the old code needs the old TS_TOKEN_URL with key=, which no longer
+- <consumer B>: `git revert` the commit and push (the old code needs the old TS_TOKEN_URL with key=, which no longer
   works). Fix forward instead.
 
 ---
@@ -600,7 +599,7 @@ select ticker||'|'||timeframe||'|'||scan_date, scan_date, 'posted', now() from p
 The order relative to the DB does not matter (the SPA degrades gracefully), but pushing after Phase 2 means BASE/LIFT,
 medians and health show up at once.
 ```bash
-cd /c/Users/jer_2/bx-terminal
+cd <repo-root>
 git log --oneline -1          # ROLLOUT_SHA (+ any fix-forward commits)
 git push origin main          # Vercel auto-deploys bx-terminal
 curl -sI https://bx-terminal.vercel.app/ | grep -ci content-security-policy                     # 1
@@ -644,7 +643,7 @@ the frontend files and push.
 - **Mon 10/26, 5:20-6:15 PM EDT:** daily chunks plus fills. After 6:20 PM, run
   `select * from public.pipeline_health where status <> 'ok';` and check that bx-finviz-sync, bx-exchange-backfill and
   bx-alerter ran ok at 6:25-6:45 PM.
-- **Mon market hours:** InPlayScanner keeps TS data for more than 20 min; the trading-journal cron at ~3:00 AM returns 200.
+- **Mon market hours:** <local scanner> keeps TS data for more than 20 min; the <consumer B> cron at ~3:00 AM returns 200.
 - **Sun 11/1 (DST ends):** the monthly scan at 6:00 AM EST writes scan_date 10/30, and the schedule shifts by 1 h in ET
   by design.
 - Watch for is_stale true on nearly every row. That means a max_scan_date mismatch, and the whole board dims.
@@ -659,11 +658,9 @@ the frontend files and push.
 - `DROP TABLE private.ticker_meta_earnings_bak_20261024;` once the earnings dates look right.
 - `DROP TABLE private.app_settings_finviz_bak_20261024;` once rolling back bx-finviz-sync to baseline is off the table.
 - Token material (closes edge-ts-9 / db-14), once the live token chain is confirmed healthy. Pick one:
-  - (a) back up, then drop or NULL the token columns of `private.tradestation_tokens_bak` and
-    `private.tradestation_tokens_bak_20261002`;
-  - (b) revoke those old refresh tokens at TradeStation.
-- Old ts-token key in historical `function_edge_logs`: it stops working at 3.1, and the logs roll off with retention.
-  Optionally ask Supabase support to purge them.
+  - (a) drop or NULL the sensitive columns of the old backup tables in `private`;
+  - (b) revoke the corresponding old grants at TradeStation.
+- Legacy ts-token query-param auth was removed at 3.1 (header-only now); old log entries roll off with retention.
 
 ---
 
@@ -695,7 +692,7 @@ the frontend files and push.
 ---
 
 ## Research re-run plan (separate; local only; no deploy, no network)
-All commands run from `C:\Users\jer_2\bx-terminal`. `research/data` is gitignored, so step R0's copy is the only way to
+All commands run from `<repo-root>`. `research/data` is gitignored, so step R0's copy is the only way to
 reproduce the old numbers.
 
 - **R0. Backup (MANDATORY).** The current reports are already committed: `git status research/reports` should show only

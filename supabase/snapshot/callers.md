@@ -1,7 +1,7 @@
 # Who calls each edge function
 
-Captured 2026-10-24. Sources: `cron.job` commands, `C:\Users\jer_2\bx-terminal\src`, a grep of 13 sibling repos
-(trading-journal, trader-backtest-lab, gex-dashboard, gex_live, market-data, orderflow-delta, market-metrics-dashboard,
+Captured 2026-10-24. Sources: `cron.job` commands, `<repo-root>\src`, a grep of 13 sibling repos
+(<consumer B>, <consumer A>, gex-dashboard, gex_live, market-data, orderflow-delta, market-metrics-dashboard,
 Market-dashboard, dodgy-ifvg-bot, trading-alerts-bot, research, paper-futures, viraledge; node_modules/.git/data/dist/venv
 excluded), and edge logs (`function_edge_logs` / `function_logs`, windows 10/18 7 AM-7 PM ET, 10/21-10/24).
 
@@ -11,7 +11,7 @@ excluded), and edge logs (`function_edge_logs` / `function_logs`, windows 10/18 
 `bx_backtest_summary?timeframe=eq.X&select=*`, `bx_backtest_results?ticker=eq.T&timeframe=eq.X&select=*&order=signal_date.desc&limit=20`.
 
 No sibling repo calls any bx-* function, refresh-quotes, ts-stream, ts-probe, finviz-probe or the OAuth pair.
-(`trader-backtest-lab/tools/setup_catalog/data2.py` and `results/setup_catalog*` only MENTION bx-scan /
+(`<consumer A>/tools/setup_catalog/data2.py` and `results/setup_catalog*` only MENTION bx-scan /
 bx-backtest-builder in descriptive text.) `market-metrics-dashboard` hits `functions/v1/...` of its OWN project
 (fetch-finviz-scanners, fetch-fred, fetch-cnbc-premarket, compute-should-i-trade, fetch-intraday-quotes-movers), not this one.
 
@@ -27,13 +27,13 @@ bx-backtest-builder in descriptive text.) `market-metrics-dashboard` hits `funct
 | ts-stream | true | none found | 0 invocations. Legacy websocket proxy. |
 | ts-probe | true | none (decommissioned, returns 410) | 0 |
 | finviz-probe | true | none (decommissioned, returns 410) | 0 |
-| ts-token | false | **trader-backtest-lab** (`src/data_layer.py` `_ts_refresh_http`, env `TS_TOKEN_BROKER_URL` + `TS_TOKEN_BROKER_KEY`; working-tree copy already sends header `x-ts-key` and strips `key=`; file is MODIFIED/uncommitted, last commit 15c2030 10/21). **trading-journal** (`src/lib/tradestation-api.ts fetchTsAccessToken`, `src/app/api/cron/tradestation/route.ts` Vercel cron `0 7 * * *` UTC, `collector/src/backfill-equity.ts`; env `TS_TOKEN_URL` + `TS_TOKEN_KEY`; working tree already uses header + strips key=, files MODIFIED/uncommitted). | ~100/day, every ~16 min around the clock, ALL `python-requests/2.32.3` = trader-backtest-lab running process, ALL `GET ...?key=<value>` (old code in memory), all 200, 1.3-5 s each. **The shared key value is visible in function_edge_logs request URLs** -> TS_TOKEN_KEY must be a NEW value. No trading-journal (node) traffic in the sampled windows. |
+| ts-token | false | **<consumer A>** (`src/data_layer.py` `_ts_refresh_http`, env `TS_TOKEN_BROKER_URL` + `TS_TOKEN_BROKER_KEY`; working-tree copy already sends header `x-ts-key` and strips `key=`; file is MODIFIED/uncommitted, last commit 15c2030 10/21). **<consumer B>** (`src/lib/tradestation-api.ts fetchTsAccessToken`, `src/app/api/cron/tradestation/route.ts` Vercel cron `0 7 * * *` UTC, `collector/src/backfill-equity.ts`; env `TS_TOKEN_URL` + `TS_TOKEN_KEY`; working tree already uses header + strips key=, files MODIFIED/uncommitted). | ~100/day, every ~16 min around the clock, ALL `python-requests/2.32.3` = <consumer A> running process, ALL `GET ...?key=<value>` (old code in memory), all 200, 1.3-5 s each. Legacy query-param auth was subsequently removed (header-only). No <consumer B> (node) traffic in the sampled windows. |
 | ts-oauth-start | false | manual browser only (comment: "open this URL in a browser") | 0 |
 | ts-oauth-callback | false | TradeStation redirect (env TRADESTATION_REDIRECT_URI) | 0 |
 
 ## Consumer config facts (values not copied)
-- `trader-backtest-lab/.env`: has `TS_TOKEN_BROKER_URL` (no `key=` in it) and `TS_TOKEN_BROKER_KEY`. The live process
-  must be **restarted** to pick up the header-sending code before ts-token stops accepting `?key=`.
-- `trading-journal/.env.local`: `TS_TOKEN_URL` still CONTAINS `key=` and there is **no TS_TOKEN_KEY** line; the new
-  code strips key= and throws "TS_TOKEN_KEY missing". Vercel project env for trading-journal needs `TS_TOKEN_KEY` (unverified).
+- `<consumer A>/.env`: has `TS_TOKEN_BROKER_URL` (no `key=` in it) and `TS_TOKEN_BROKER_KEY`. The live process
+  must be **restarted** to pick up the header-sending code before the header-only cutover.
+- `<consumer B>/.env.local`: `TS_TOKEN_URL` still CONTAINS `key=` and there is **no TS_TOKEN_KEY** line; the new
+  code strips key= and throws "TS_TOKEN_KEY missing". Vercel project env for <consumer B> needs `TS_TOKEN_KEY` (unverified).
 - ts-token today refreshes the TradeStation token on EVERY call (no cache), ~100 refreshes/day, racing with bx-scan's own refresh.

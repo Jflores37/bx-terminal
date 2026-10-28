@@ -86,7 +86,7 @@ Every cron job calls it unqualified as `invoke_edge_function(...)`. postgres sea
 - bx-exchange-backfill fails with **500 on every run**: PGRST102 "All object keys must match". It pushes rows with differing key sets in one
   bulk upsert, so ticker_meta exchange and 52-week columns never refresh.
 - Two Sunday earnings jobs (13 at 3:00 PM UTC, 14 at 1:40 PM UTC) plus Wednesday (15).
-- Backup tables holding token material: `public.tradestation_tokens_bak` (RLS forced) and `private.tradestation_tokens_bak_20261002`.
+- Old backup tables exist and are scheduled for cleanup (see RUNBOOK Phase 9).
 
 ## 6. Cron jobs (UTC; see cron_jobs.sql for the EDT/EST table)
 | id | name | schedule | command |
@@ -110,13 +110,12 @@ reconcile_universe(30 min, 800) requires finviz to have refreshed >= 800 ticker_
 ## 7. Callers (details in callers.md)
 - SPA: PostgREST only (latest_scans_with_meta, bx_movers, sector_pulse, bx_backtest_summary, bx_backtest_results). It calls no function.
 - bx-scan, bx-backtest-builder, bx-alerter, bx-finviz-sync, bx-earnings-sync, bx-exchange-backfill: pg_cron only.
-- ts-token: trader-backtest-lab (python; ~100 calls/day, every ~16 min, all `?key=` from the running old process, so it must be
-  restarted after the header code is deployed) and trading-journal (Vercel cron 7:00 AM UTC daily plus a collector script; no traffic seen;
+- ts-token: <consumer A> (python; ~100 calls/day, every ~16 min, all `?key=` from the running old process, so it must be
+  restarted after the header code is deployed) and <consumer B> (Vercel cron 7:00 AM UTC daily plus a collector script; no traffic seen;
   `.env.local` lacks TS_TOKEN_KEY). The working trees of both consumers already send `x-ts-key` (uncommitted).
-  **The current key value appears in plain text in function_edge_logs URLs**, so use a fresh TS_TOKEN_KEY.
+  Legacy `?key=` auth has since been removed (header-only).
 - refresh-quotes, ts-stream, ts-probe, finviz-probe, ts-oauth-start, ts-oauth-callback: no automated callers and 0 invocations.
-- Note: the committed baseline `ts-token/index.ts` has its SHARED_KEY replaced by a redaction placeholder. The deployed copy still has the
-  real (leaked) key and still accepts it.
+- Note: ts-token query-param key auth was removed (2026-10-24); the endpoint accepts the `x-ts-key` header only.
 
 ## 8. Shared helpers written by prep (supabase/functions/_shared)
 - `cron_auth.ts`: `requireCron(req): Response | null` and `timingSafeEqualStr(a, b): boolean` (exported for the ts-token x-ts-key check).

@@ -3,7 +3,7 @@
 // carries a ?key= query param is rejected with 400: query strings land in edge/proxy logs.
 // Returns the cached token from tradestation_tokens id=1 while it has > 2 min left; otherwise
 // _shared/ts_auth.ts refreshes it with a compare-and-swap write (contract C7/C8).
-// Consumers: trading-journal (TS_TOKEN_URL + TS_TOKEN_KEY), trader-backtest-lab (TS_TOKEN_BROKER_URL + TS_TOKEN_BROKER_KEY).
+// Consumers: the owner's own server-side services (URL + key env vars).
 // No CORS headers on purpose (no browser caller). Never log the request URL, query or headers.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { timingSafeEqualStr } from "../_shared/cron_auth.ts";
